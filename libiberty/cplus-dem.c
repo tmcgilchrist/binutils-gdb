@@ -100,6 +100,12 @@ const struct demangler_engine libiberty_demanglers[] =
   }
   ,
   {
+    OXCAML_DEMANGLING_STYLE_STRING,
+    oxcaml_demangling,
+    "OxCaml style demangling"
+  }
+  ,
+  {
     NULL, unknown_demangling, NULL
   }
 };
@@ -110,7 +116,7 @@ const struct demangler_engine libiberty_demanglers[] =
 enum demangling_styles
 cplus_demangle_set_style (enum demangling_styles style)
 {
-  const struct demangler_engine *demangler = libiberty_demanglers; 
+  const struct demangler_engine *demangler = libiberty_demanglers;
 
   for (; demangler->demangling_style != unknown_demangling; ++demangler)
     if (style == demangler->demangling_style)
@@ -127,7 +133,7 @@ cplus_demangle_set_style (enum demangling_styles style)
 enum demangling_styles
 cplus_demangle_name_to_style (const char *name)
 {
-  const struct demangler_engine *demangler = libiberty_demanglers; 
+  const struct demangler_engine *demangler = libiberty_demanglers;
 
   for (; demangler->demangling_style != unknown_demangling; ++demangler)
     if (strcmp (name, demangler->demangling_style_name) == 0)
@@ -193,6 +199,14 @@ cplus_demangle (const char *mangled, int options)
 	return ret;
     }
 
+  /* The OxCaml demangling is implemented elsewhere.  */
+  if (OXCAML_DEMANGLING || AUTO_DEMANGLING)
+    {
+      ret = oxcaml_demangle (mangled, options);
+      if (ret || OXCAML_DEMANGLING)
+	return ret;
+    }
+
   return (ret);
 }
 
@@ -205,7 +219,7 @@ ada_demangle (const char *mangled, int option ATTRIBUTE_UNUSED)
   const char* p;
   char *d;
   char *demangled = NULL;
-  
+
   /* Discard leading _ada_, which is used for library level subprograms.  */
   if (strncmp (mangled, "_ada_", 5) == 0)
     mangled += 5;
@@ -221,7 +235,7 @@ ada_demangle (const char *mangled, int option ATTRIBUTE_UNUSED)
      they occur only once.  */
   len0 = strlen (mangled) + 7 + 1;
   demangled = XNEWVEC (char, len0);
-  
+
   d = demangled;
   p = mangled;
   while (1)
