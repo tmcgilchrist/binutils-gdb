@@ -100,6 +100,12 @@ const struct demangler_engine libiberty_demanglers[] =
   }
   ,
   {
+    OXCAML_DEMANGLING_STYLE_STRING,
+    oxcaml_demangling,
+    "OxCaml style demangling"
+  }
+  ,
+  {
     NULL, unknown_demangling, NULL
   }
 };
@@ -190,6 +196,14 @@ cplus_demangle (const char *mangled, int options)
     {
       ret = dlang_demangle (mangled, options);
       if (ret)
+	return ret;
+    }
+
+  /* The OxCaml demangling is implemented elsewhere.  */
+  if (OXCAML_DEMANGLING || AUTO_DEMANGLING)
+    {
+      ret = oxcaml_demangle (mangled, options);
+      if (ret || OXCAML_DEMANGLING)
 	return ret;
     }
 

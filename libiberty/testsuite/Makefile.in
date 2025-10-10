@@ -45,8 +45,8 @@ all:
 check: @CHECK@
 
 really-check: check-cplus-dem check-d-demangle check-rust-demangle \
-		check-pexecute check-expandargv check-strtol \
-		check-doubly-linked-list
+		check-oxcaml-demangle check-pexecute check-expandargv \
+		check-strtol check-doubly-linked-list
 
 # Run some tests of the demangler.
 check-cplus-dem: test-demangle $(srcdir)/demangle-expected
@@ -57,6 +57,9 @@ check-d-demangle: test-demangle $(srcdir)/d-demangle-expected
 
 check-rust-demangle: test-demangle $(srcdir)/rust-demangle-expected
 	./test-demangle < $(srcdir)/rust-demangle-expected
+
+check-oxcaml-demangle: test-demangle $(srcdir)/oxcaml-demangle-expected
+	./test-demangle < $(srcdir)/oxcaml-demangle-expected
 
 # Check the pexecute code.
 check-pexecute: test-pexecute
