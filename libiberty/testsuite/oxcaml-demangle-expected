@@ -1,0 +1,277 @@
+# This file holds test cases for the OxCaml demangler.
+# Each test case looks like this:
+#  options
+#  input to be demangled
+#  expected output
+#
+# See demangle-expected for documentation of supported options.
+#
+# A line starting with `#' is ignored.
+# However, blank lines in this file are NOT ignored.
+#
+############
+#
+# Basic Module and Function Tests (from demo.exe)
+#
+# Simple function - Stdlib__Fun.flip
+--format=auto
+_OM11Stdlib__FunF4flip_9_code
+Stdlib__Fun.flip
+#
+# Simple function - Stdlib__Fun.const
+--format=auto
+_OM11Stdlib__FunF5const_7_code
+Stdlib__Fun.const
+#
+# Simple function - Stdlib__Fun.compose
+--format=auto
+_OM11Stdlib__FunF7compose_8_code
+Stdlib__Fun.compose
+#
+# Simple function - Stdlib__Int.abs
+--format=auto
+_OM11Stdlib__IntF3abs_9_code
+Stdlib__Int.abs
+#
+# Simple function - Stdlib__Int.min
+--format=auto
+_OM11Stdlib__IntF3min_11_code
+Stdlib__Int.min
+#
+# Simple function - Stdlib__Int.max
+--format=auto
+_OM11Stdlib__IntF3max_12_code
+Stdlib__Int.max
+#
+# Simple function - Stdlib__Obj.size
+--format=auto
+_OM11Stdlib__ObjF4size_32_code
+Stdlib__Obj.size
+#
+# Simple function - Stdlib__Obj.field
+--format=auto
+_OM11Stdlib__ObjF5field_33_code
+Stdlib__Obj.field
+#
+############
+#
+# Nested Module Tests
+#
+# Nested module - Stdlib__Obj.Ephemeron.create
+--format=auto
+_OM11Stdlib__ObjM9EphemeronF6create_41_code
+Stdlib__Obj.Ephemeron.create
+#
+# Nested module - Stdlib__Obj.Ephemeron.length
+--format=auto
+_OM11Stdlib__ObjM9EphemeronF6length_42_code
+Stdlib__Obj.Ephemeron.length
+#
+# Nested module - Stdlib__Obj.Ephemeron.get_key
+--format=auto
+_OM11Stdlib__ObjM9EphemeronF7get_key_44_code
+Stdlib__Obj.Ephemeron.get_key
+#
+# Nested module - Stdlib__Obj.Extension_constructor.id
+--format=auto
+_OM11Stdlib__ObjM21Extension_constructorF2id_40_code
+Stdlib__Obj.Extension_constructor.id
+#
+# Nested module - Stdlib__Obj.Extension_constructor.name
+--format=auto
+_OM11Stdlib__ObjM21Extension_constructorF4name_39_code
+Stdlib__Obj.Extension_constructor.name
+#
+# Nested module - Stdlib__Obj.Uniform_or_mixed.repr
+--format=auto
+_OM11Stdlib__ObjM16Uniform_or_mixedF4repr_50_code
+Stdlib__Obj.Uniform_or_mixed.repr
+#
+# Nested module - Stdlib__Obj.Uniform_or_mixed.is_uniform
+--format=auto
+_OM11Stdlib__ObjM16Uniform_or_mixedF10is_uniform_51_code
+Stdlib__Obj.Uniform_or_mixed.is_uniform
+#
+# Nested module - Stdlib__Obj.Uniform_or_mixed.is_mixed
+--format=auto
+_OM11Stdlib__ObjM16Uniform_or_mixedF8is_mixed_52_code
+Stdlib__Obj.Uniform_or_mixed.is_mixed
+#
+############
+#
+# Partial Application Tests
+#
+# Partial application - Stdlib__Obj
+--format=auto
+_OM11Stdlib__ObjP_29_code
+Stdlib__Obj(partially_applied)
+#
+# Partial application - Stdlib__Obj
+--format=auto
+_OM11Stdlib__ObjP_30_code
+Stdlib__Obj(partially_applied)
+#
+# Partial application - Stdlib__Int.equal
+--format=auto
+_OM11Stdlib__IntF5equalP_2_code
+Stdlib__Int.equal(partially_applied)
+#
+# Partial application - Stdlib__Int.compare
+--format=auto
+_OM11Stdlib__IntF7compareP_3_code
+Stdlib__Int.compare(partially_applied)
+#
+# Partial application - Stdlib__Sys
+--format=auto
+_OM11Stdlib__SysP_6_code
+Stdlib__Sys(partially_applied)
+#
+# Partial application - Stdlib__Array
+--format=auto
+_OM13Stdlib__ArrayP_69_code
+Stdlib__Array(partially_applied)
+#
+# Partial application - Stdlib__Bytes.set_uint8
+--format=auto
+_OM13Stdlib__BytesF9set_uint8P_88_code
+Stdlib__Bytes.set_uint8(partially_applied)
+#
+# Partial application - Stdlib__Bytes.set_uint16_ne
+--format=auto
+_OM13Stdlib__BytesF13set_uint16_neP_89_code
+Stdlib__Bytes.set_uint16_ne(partially_applied)
+#
+############
+#
+# Anonymous Function Tests (with location encoding)
+#
+# Anonymous function in Stdlib__Fun
+--format=auto
+_OM11Stdlib__FunLu17D2e_funml_29_1374_11_code
+Stdlib__Fun.fn(fun.ml:29:1374)
+#
+# Anonymous function in Stdlib__Seq.drop
+--format=auto
+_OM11Stdlib__SeqF4dropLu18D2e_seqml_397_9284_198_code
+Stdlib__Seq.drop.fn(seq.ml:397:9284)
+#
+# Anonymous function in Stdlib__Seq.once
+--format=auto
+_OM11Stdlib__SeqF4onceLu19D2e_seqml_474_11120_213_code
+Stdlib__Seq.once.fn(seq.ml:474:11120)
+#
+# Anonymous function in Stdlib__Seq.memoize
+--format=auto
+_OM11Stdlib__SeqF7memoizeLu19D2e_seqml_465_10972_210_code
+Stdlib__Seq.memoize.fn(seq.ml:465:10972)
+#
+# Anonymous function in Stdlib__Seq.to_dispenser
+--format=auto
+_OM11Stdlib__SeqF12to_dispenserLu19D2e_seqml_697_16917_246_code
+Stdlib__Seq.to_dispenser.fn(seq.ml:697:16917)
+#
+# Nested anonymous function in Stdlib__Seq.map_product
+--format=auto
+_OM11Stdlib__SeqF11map_productLu19D2e_seqml_675_16613_136_code
+Stdlib__Seq.map_product.fn(seq.ml:675:16613)
+#
+# Nested anonymous function in Stdlib__Seq.map_product (deeper)
+--format=auto
+_OM11Stdlib__SeqF11map_productLu19D2e_seqml_675_16613Lu19D2e_seqml_676_16635_236_code
+Stdlib__Seq.map_product.fn(seq.ml:675:16613).fn(seq.ml:676:16635)
+#
+############
+#
+# Different Module Name Lengths
+#
+# CamlinternalLazy module (16 chars)
+--format=auto
+_OM16CamlinternalLazyF14do_force_block_6_code
+CamlinternalLazy.do_force_block
+#
+# CamlinternalLazy with nested anonymous
+--format=auto
+_OM16CamlinternalLazyF14do_force_blockLu30Q2e_camlinternalLazyml_61_2796_7_code
+CamlinternalLazy.do_force_block.fn(camlinternalLazy.ml:61:2796)
+#
+# CamlinternalLazy.force_gen
+--format=auto
+_OM16CamlinternalLazyF9force_gen_13_code
+CamlinternalLazy.force_gen
+#
+# CamlinternalFormat module (18 chars)
+--format=auto
+_OM18CamlinternalFormatF10bprint_fmt_321_code
+CamlinternalFormat.bprint_fmt
+#
+# CamlinternalFormat with nested function
+--format=auto
+_OM18CamlinternalFormatF10bprint_fmtF7fmtiter_322_code
+CamlinternalFormat.bprint_fmt.fmtiter
+#
+# CamlinternalFormat.bufput_acc
+--format=auto
+_OM18CamlinternalFormatF10bufput_acc_466_code
+CamlinternalFormat.bufput_acc
+#
+# CamlinternalFormat.output_acc
+--format=auto
+_OM18CamlinternalFormatF10output_acc_465_code
+CamlinternalFormat.output_acc
+#
+# CamlinternalFormat.fix_padding
+--format=auto
+_OM18CamlinternalFormatF11fix_padding_382_code
+CamlinternalFormat.fix_padding
+#
+############
+#
+# Module Name with Underscores
+#
+# Stdlib__Seq (double underscore)
+--format=auto
+_OM11Stdlib__SeqF4drop_200_code
+Stdlib__Seq.drop
+#
+# Stdlib__Seq.filter_map
+--format=auto
+_OM11Stdlib__SeqF10filter_map_152_code
+Stdlib__Seq.filter_map
+#
+# Stdlib__Seq.fold_left2
+--format=auto
+_OM11Stdlib__SeqF10fold_left2_176_code
+Stdlib__Seq.fold_left2
+#
+############
+#
+# Edge Cases
+#
+# Non-oxcaml symbol (C++ symbol, will demangle via C++)
+--format=auto
+_ZN4testE
+test
+#
+# Symbol without _O prefix (should not demangle)
+--format=auto
+camlExpensive__bubble_sort_67
+camlExpensive__bubble_sort_67
+#
+# Invalid oxcaml symbol (empty path returns NULL, treated as unmangled)
+--format=auto
+_O_test
+
+#
+############
+#
+# Format-specific tests
+#
+# Explicit oxcaml format
+--format=oxcaml
+_OM11Stdlib__FunF4flip_9_code
+Stdlib__Fun.flip
+#
+# Should not demangle with wrong format
+--format=gnu-v3
+_OM11Stdlib__FunF4flip_9_code
+_OM11Stdlib__FunF4flip_9_code
