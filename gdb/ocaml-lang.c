@@ -15,7 +15,41 @@
    GNU General Public License for more details.
 
    You should have received a copy of the GNU General Public License
-   along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+   TODO: DWARF Type Information Integration
+   ========================================
+   The current implementation uses heuristics to interpret OCaml's tagged
+   value representation. Many improvements are possible with DWARF type info:
+
+   1. VALUE DISAMBIGUATION
+      - Distinguish (), false, [], None (all have runtime value 1)
+      - Distinguish arrays from tuples (both use tag 0 blocks)
+      - Identify which variant constructor a block represents
+
+   2. SYMBOLIC NAMES
+      - Print variant constructor names instead of tag numbers
+      - Print record field names instead of positional fields
+      - Show type names for custom blocks
+
+   3. DWARF INTEGRATION APPROACH
+      - Check value->type() for DWARF DIE information
+      - For variant types: Look for DW_TAG_variant_part
+      - For records: Extract field names from DW_TAG_member
+      - For arrays/tuples: Check type structure to distinguish
+      - Map block tags to constructor names via DWARF attributes
+
+   4. EXAMPLE IMPROVEMENTS
+      Before (current):  <block tag=0 size=1>
+      After (with DWARF): Some 42
+
+      Before (current):  (1, 2)
+      After (with DWARF): [|1; 2|]  (if actually an array)
+
+      Before (current):  <block tag=2 size=2>
+      After (with DWARF): Point {x=10; y=20}
+
+   See individual TODO comments throughout this file for specific areas.  */
 
 #include "symtab.h"
 #include "language.h"
@@ -359,6 +393,460 @@ ocaml_header_size (ULONGEST header)
   return header >> 10;
 }
 
+/* Read a field from an OCaml block.
+
+   Fields are stored sequentially after the block pointer, each occupying
+   one word (pointer-sized).  Field 0 is at block_addr, field 1 is at
+   block_addr + word_size, etc.
+
+   Returns true on success, false on memory read error.  */
+
+bool
+ocaml_read_block_field (struct gdbarch *gdbarch, CORE_ADDR block_addr,
+			int field_index, LONGEST *value)
+{
+  int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+  gdb_byte buf[8];  /* Enough for 64-bit pointers.  */
+
+  if (ptr_size > sizeof (buf))
+    return false;
+
+  /* Read the field at block_addr + (field_index * ptr_size).  */
+  CORE_ADDR field_addr = block_addr + (field_index * ptr_size);
+
+  if (target_read_memory (field_addr, buf, ptr_size) != 0)
+    return false;
+
+  *value = extract_unsigned_integer (buf, ptr_size, byte_order);
+  return true;
+}
+
+/* Print an OCaml string block.
+
+   OCaml strings are stored as blocks with tag 252 (OCAML_TAG_STRING).
+   The last byte of the last word contains the number of padding bytes
+   (0-7), allowing strings to have byte-level precision despite being
+   stored in word-sized blocks.  */
+
+void
+ocaml_print_string (struct gdbarch *gdbarch, CORE_ADDR addr,
+		    ULONGEST size, struct ui_file *stream)
+{
+  if (size == 0)
+    {
+      gdb_puts ("\"\"", stream);
+      return;
+    }
+
+  int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+
+  /* Calculate the actual byte length.
+     Last byte contains the number of padding bytes.  */
+  ULONGEST byte_size = size * ptr_size;
+  gdb_byte last_byte;
+
+  if (target_read_memory (addr + byte_size - 1, &last_byte, 1) != 0)
+    {
+      gdb_printf (stream, "<string[%s]>", pulongest (size));
+      return;
+    }
+
+  /* The actual string length excludes the padding bytes.  */
+  ULONGEST string_len = byte_size - last_byte - 1;
+
+  /* Limit the length to avoid excessive output.  */
+  const ULONGEST max_print_len = 200;
+  bool truncated = false;
+  if (string_len > max_print_len)
+    {
+      string_len = max_print_len;
+      truncated = true;
+    }
+
+  /* Read the string content.  */
+  gdb::unique_xmalloc_ptr<gdb_byte> buffer
+    ((gdb_byte *) xmalloc (string_len + 1));
+
+  if (target_read_memory (addr, buffer.get (), string_len) != 0)
+    {
+      gdb_printf (stream, "<string[%s]>", pulongest (size));
+      return;
+    }
+
+  /* Print the string with proper escaping.  */
+  gdb_puts ("\"", stream);
+  for (ULONGEST i = 0; i < string_len; i++)
+    {
+      gdb_byte ch = buffer.get ()[i];
+      if (ch == '"')
+	gdb_puts ("\\\"", stream);
+      else if (ch == '\\')
+	gdb_puts ("\\\\", stream);
+      else if (ch == '\n')
+	gdb_puts ("\\n", stream);
+      else if (ch == '\t')
+	gdb_puts ("\\t", stream);
+      else if (ch == '\r')
+	gdb_puts ("\\r", stream);
+      else if (ch >= 32 && ch < 127)
+	gdb_printf (stream, "%c", ch);
+      else
+	gdb_printf (stream, "\\x%02x", ch);
+    }
+  if (truncated)
+    gdb_puts ("...", stream);
+  gdb_puts ("\"", stream);
+}
+
+/* Forward declarations for recursive printing.  */
+static void ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
+			       struct ui_file *stream, int recurse,
+			       const struct value_print_options *options);
+
+/* Print an OCaml tuple (block with tag 0, no specific ADT type).
+   Tuples are printed as (field0, field1, field2, ...).  */
+
+static void
+ocaml_print_tuple (struct gdbarch *gdbarch, CORE_ADDR addr, ULONGEST size,
+		   struct ui_file *stream, int recurse,
+		   const struct value_print_options *options)
+{
+  if (size == 0)
+    {
+      gdb_puts ("()", stream);
+      return;
+    }
+
+  gdb_puts ("(", stream);
+  for (ULONGEST i = 0; i < size; i++)
+    {
+      if (i > 0)
+	gdb_puts (", ", stream);
+
+      LONGEST field_val;
+      if (ocaml_read_block_field (gdbarch, addr, i, &field_val))
+	ocaml_print_value (gdbarch, field_val, stream, recurse + 1, options);
+      else
+	gdb_puts ("<error>", stream);
+    }
+  gdb_puts (")", stream);
+}
+
+/* Print an OCaml array.
+   Arrays are printed as [|elem0; elem1; elem2; ...|].
+
+   TODO: Array vs Tuple Disambiguation
+   - OCaml arrays and tuples both use tag 0 blocks
+   - Without DWARF type information, we cannot reliably distinguish them
+   - This function is kept for future use when type information becomes available
+   - Future work: Check DWARF DIE type to determine if a tag 0 block is:
+     * An array ('a array type)
+     * A tuple ('a * 'b * ... type)
+     * A record (may also use tag 0 depending on optimization)
+   - Currently, all tag 0 blocks are printed as tuples unless they match
+     the list pattern (size 2 with proper tail chain) */
+
+static void __attribute__((unused))
+ocaml_print_array (struct gdbarch *gdbarch, CORE_ADDR addr, ULONGEST size,
+		   struct ui_file *stream, int recurse,
+		   const struct value_print_options *options)
+{
+  if (size == 0)
+    {
+      gdb_puts ("[||]", stream);
+      return;
+    }
+
+  gdb_puts ("[|", stream);
+
+  /* Limit array elements to avoid excessive output.  */
+  ULONGEST max_elems = 10;
+  bool truncated = false;
+  ULONGEST print_size = size;
+  if (size > max_elems)
+    {
+      print_size = max_elems;
+      truncated = true;
+    }
+
+  for (ULONGEST i = 0; i < print_size; i++)
+    {
+      if (i > 0)
+	gdb_puts ("; ", stream);
+
+      LONGEST field_val;
+      if (ocaml_read_block_field (gdbarch, addr, i, &field_val))
+	ocaml_print_value (gdbarch, field_val, stream, recurse + 1, options);
+      else
+	gdb_puts ("<error>", stream);
+    }
+
+  if (truncated)
+    gdb_printf (stream, "; ... (%s more)", pulongest (size - print_size));
+
+  gdb_puts ("|]", stream);
+}
+
+/* Print an OCaml list.
+   Lists use tag 0 blocks with 2 fields: head and tail.
+   Empty list is represented by immediate value 1 ([]).
+
+   TODO: List Detection Heuristic Limitations
+   - Current detection: tag 0, size 2, tail is [] or another block
+   - This heuristic may incorrectly identify other ADTs as lists:
+     * ('a * 'b) tuples where second element is [] or a block
+     * Binary trees or other recursive structures with similar layout
+     * Some variant constructors with 2 fields
+   - Future work: Use DWARF type information to confirm list type
+   - Better approach: Check if type is "list" or has DW_TAG_variant_part
+     with constructors named [] and :: */
+
+static void
+ocaml_print_list (struct gdbarch *gdbarch, LONGEST list_val,
+		  struct ui_file *stream, int recurse,
+		  const struct value_print_options *options)
+{
+  /* Check for empty list.  */
+  if (list_val == OCAML_VAL_EMPTY_LIST)
+    {
+      gdb_puts ("[]", stream);
+      return;
+    }
+
+  /* Limit list length to avoid infinite loops and excessive output.  */
+  const int max_list_len = 20;
+  int count = 0;
+
+  gdb_puts ("[", stream);
+
+  LONGEST current = list_val;
+  bool first = true;
+
+  while (ocaml_is_block (current) && count < max_list_len)
+    {
+      CORE_ADDR addr = (CORE_ADDR) current;
+      ULONGEST header;
+
+      if (!ocaml_read_block_header (gdbarch, addr, &header))
+	break;
+
+      int tag = ocaml_header_tag (header);
+      ULONGEST size = ocaml_header_size (header);
+
+      /* List cons cells have tag 0 and size 2 (head, tail).  */
+      if (tag != 0 || size != 2)
+	break;
+
+      if (!first)
+	gdb_puts ("; ", stream);
+      first = false;
+
+      /* Print the head element.  */
+      LONGEST head;
+      if (!ocaml_read_block_field (gdbarch, addr, 0, &head))
+	{
+	  gdb_puts ("<error>", stream);
+	  break;
+	}
+
+      ocaml_print_value (gdbarch, head, stream, recurse + 1, options);
+
+      /* Get the tail.  */
+      LONGEST tail;
+      if (!ocaml_read_block_field (gdbarch, addr, 1, &tail))
+	{
+	  gdb_puts ("; <error>", stream);
+	  break;
+	}
+
+      current = tail;
+      count++;
+
+      /* Check if we've reached the end of the list.  */
+      if (current == OCAML_VAL_EMPTY_LIST)
+	break;
+    }
+
+  if (count >= max_list_len && current != OCAML_VAL_EMPTY_LIST)
+    gdb_puts ("; ...", stream);
+  else if (current != OCAML_VAL_EMPTY_LIST && ocaml_is_block (current))
+    {
+      /* Non-standard tail (not a proper list).  */
+      gdb_puts (" | ", stream);
+      ocaml_print_value (gdbarch, current, stream, recurse + 1, options);
+    }
+
+  gdb_puts ("]", stream);
+}
+
+/* Print a single OCaml value given its raw representation.
+   This is the core recursive printing function.  */
+
+static void
+ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
+		   struct ui_file *stream, int recurse,
+		   const struct value_print_options *options)
+{
+  /* Prevent excessive recursion.  */
+  if (recurse > 10)
+    {
+      gdb_puts ("...", stream);
+      return;
+    }
+
+  /* Check for special immediate values.  */
+  if (val_raw == OCAML_VAL_TRUE)
+    {
+      gdb_puts ("true", stream);
+      return;
+    }
+
+  /* Check if this is an immediate integer.  */
+  if (ocaml_is_immediate_int (val_raw))
+    {
+      LONGEST int_val = ocaml_immediate_int_val (val_raw);
+
+      /* Special case: 0 could be false, (), [], or None.
+	 Without type information, we just show the integer.  */
+      gdb_printf (stream, "%s", plongest (int_val));
+      return;
+    }
+
+  /* Check if this is a block pointer.  */
+  if (ocaml_is_block (val_raw))
+    {
+      CORE_ADDR addr = (CORE_ADDR) val_raw;
+      ULONGEST header;
+
+      if (!ocaml_read_block_header (gdbarch, addr, &header))
+	{
+	  gdb_printf (stream, "<block at %s>", paddress (gdbarch, addr));
+	  return;
+	}
+
+      int tag = ocaml_header_tag (header);
+      ULONGEST size = ocaml_header_size (header);
+
+      /* Handle special block types.  */
+      if (tag == OCAML_TAG_STRING)
+	{
+	  ocaml_print_string (gdbarch, addr, size, stream);
+	  return;
+	}
+      else if (tag == OCAML_TAG_DOUBLE)
+	{
+	  gdb_byte buf[8];
+	  if (target_read_memory (addr, buf, 8) == 0)
+	    {
+	      double d;
+	      memcpy (&d, buf, 8);
+	      gdb_printf (stream, "%g", d);
+	    }
+	  else
+	    gdb_puts ("<float>", stream);
+	  return;
+	}
+      else if (tag == OCAML_TAG_DOUBLE_ARRAY)
+	{
+	  /* TODO: Print individual float array elements
+	     - Currently only shows the array size
+	     - Future work: Read and print each float element
+	     - Elements are stored as raw 64-bit floats (not tagged)
+	     - Example output: [|1.0; 2.5; 3.14|] */
+	  gdb_printf (stream, "<float array[%s]>", pulongest (size));
+	  return;
+	}
+      else if (tag == 0)
+	{
+	  /* Tag 0 can be tuple, list cons, option Some, or other ADTs.
+	     Try to detect lists (size 2 pattern).  */
+	  if (size == 2)
+	    {
+	      /* Could be a list cons cell. Let's check if it looks like one
+		 by trying to traverse it.  */
+	      LONGEST tail;
+	      if (ocaml_read_block_field (gdbarch, addr, 1, &tail)
+		  && (tail == OCAML_VAL_EMPTY_LIST || ocaml_is_block (tail)))
+		{
+		  /* Likely a list. Print as list.  */
+		  ocaml_print_list (gdbarch, val_raw, stream, recurse, options);
+		  return;
+		}
+	    }
+
+	  /* Otherwise, print as tuple or generic block.  */
+	  ocaml_print_tuple (gdbarch, addr, size, stream, recurse, options);
+	  return;
+	}
+      else if (tag == OCAML_TAG_CLOSURE)
+	{
+	  /* TODO: Enhanced Closure Printing
+	     - Could show the function's code pointer and captured environment
+	     - Future work: Print function name if available via symbol table
+	     - Could show captured variables if DWARF info available
+	     - Example: <closure: foo(x=42, y=3.14)> */
+	  gdb_puts ("<closure>", stream);
+	  return;
+	}
+      else if (tag == OCAML_TAG_OBJECT)
+	{
+	  /* TODO: Object Field Printing
+	     - Objects store their class information and fields
+	     - Field 0: class structure pointer
+	     - Fields 1+: instance variables
+	     - Future work: Parse class structure to get field names and types
+	     - Could print as {field1=value1; field2=value2; ...} */
+	  gdb_puts ("<object>", stream);
+	  return;
+	}
+      else if (tag == OCAML_TAG_CUSTOM)
+	{
+	  /* TODO: Custom Block Interpretation
+	     - Custom blocks have operations defined in C
+	     - Field 0: pointer to custom operations structure
+	     - Fields 1+: custom data
+	     - Custom operations include:
+	       * identifier string
+	       * finalize, compare, hash, serialize functions
+	     - Future work: Read identifier and dispatch to type-specific printers
+	     - Examples: Int64.t, Bigarray.t, Unix file descriptors
+	     - Could show as <Int64: 9223372036854775807> */
+	  gdb_puts ("<custom>", stream);
+	  return;
+	}
+      else if (tag < OCAML_TAG_LAZY)
+	{
+	  /* TODO: Variant Constructor and Record Printing
+	     - Tags 0-245 are used for variant constructors and records
+	     - Tag value indicates which constructor of a variant type
+	     - Without DWARF type information, we cannot determine:
+	       * The type name (e.g., "option", "list", custom types)
+	       * The constructor name (e.g., "Some", "None", "Cons", custom)
+	       * Field names for records
+	     - Future work: Parse DWARF DIE to extract:
+	       * DW_TAG_variant_part for variant types
+	       * DW_TAG_variant for each constructor
+	       * DW_TAG_member for record fields
+	     - Examples of desired output:
+	       * Some 42 (instead of <block tag=0 size=1>)
+	       * Red (instead of <block tag=0 size=0>)
+	       * {name="Alice"; age=30} (instead of <block tag=0 size=2>)
+	     - Current implementation: Show raw tag and size */
+	  gdb_printf (stream, "<block tag=%d size=%s>", tag, pulongest (size));
+	  return;
+	}
+      else
+	{
+	  gdb_printf (stream, "<special block tag=%d>", tag);
+	  return;
+	}
+    }
+
+  /* Value is 0 (NULL).  */
+  gdb_puts ("<null>", stream);
+}
+
 /* Implement la_value_print_inner for OCaml.
 
    OCaml uses a tagged value representation:
@@ -383,122 +871,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
       return;
     }
 
-  /* Extract the raw value.  */
+  /* Extract the raw value and delegate to the recursive printer.  */
   LONGEST raw_val = value_as_long (val);
-
-  /* Check for special immediate values first.
-     Note: unit, false, [], and None all have the same representation (1).
-     We can't distinguish between them without type information.  */
-  if (raw_val == OCAML_VAL_TRUE)
-    {
-      gdb_puts ("true", stream);
-      return;
-    }
-
-  /* Check if this is an immediate integer.  */
-  if (ocaml_is_immediate_int (raw_val))
-    {
-      LONGEST int_val = ocaml_immediate_int_val (raw_val);
-
-      /* Could be unit, false, [], or None if value is 0 (raw 1).  */
-      if (int_val == 0)
-	{
-	  /* Without type info, we'll just show it as an int.
-	     In Stage 5, we'll use type information to distinguish these.  */
-	  gdb_printf (stream, "%s", plongest (int_val));
-	}
-      else
-	{
-	  gdb_printf (stream, "%s", plongest (int_val));
-	}
-      return;
-    }
-
-  /* Check if this is a block pointer.  */
-  if (ocaml_is_block (raw_val))
-    {
-      CORE_ADDR addr = (CORE_ADDR) raw_val;
-      ULONGEST header;
-
-      /* Try to read the block header.  */
-      if (!ocaml_read_block_header (gdbarch, addr, &header))
-	{
-	  /* Can't read memory, fall back to showing the address.  */
-	  gdb_printf (stream, "<block at %s>",
-		      paddress (gdbarch, addr));
-	  return;
-	}
-
-      int tag = ocaml_header_tag (header);
-      ULONGEST size = ocaml_header_size (header);
-
-      /* Handle different block types based on tag.  */
-      switch (tag)
-	{
-	case OCAML_TAG_STRING:
-	  /* OCaml string - try to print it.  */
-	  {
-	    /* Read the string data. For now, just show it's a string.
-	       Full string printing will be improved in Stage 5.  */
-	    gdb_printf (stream, "<string[%s]>", pulongest (size));
-	  }
-	  break;
-
-	case OCAML_TAG_DOUBLE:
-	  /* OCaml float (always 64-bit).  */
-	  {
-	    gdb_byte buf[8];
-	    if (target_read_memory (addr, buf, 8) == 0)
-	      {
-		double d;
-		memcpy (&d, buf, 8);
-		gdb_printf (stream, "%g", d);
-	      }
-	    else
-	      {
-		gdb_puts ("<float>", stream);
-	      }
-	  }
-	  break;
-
-	case OCAML_TAG_DOUBLE_ARRAY:
-	  gdb_printf (stream, "<float array[%s]>", pulongest (size));
-	  break;
-
-	case OCAML_TAG_CLOSURE:
-	  gdb_printf (stream, "<closure>");
-	  break;
-
-	case OCAML_TAG_OBJECT:
-	  gdb_printf (stream, "<object>");
-	  break;
-
-	case OCAML_TAG_CUSTOM:
-	  gdb_printf (stream, "<custom>");
-	  break;
-
-	case OCAML_TAG_ABSTRACT:
-	  gdb_printf (stream, "<abstract>");
-	  break;
-
-	default:
-	  /* Structured block (tuple, record, variant, list, etc.).
-	     Tags 0-245 are used for variants and structured data.
-	     Full ADT printing will be implemented in Stage 5.  */
-	  if (tag < OCAML_TAG_LAZY)
-	    {
-	      gdb_printf (stream, "<block tag=%d size=%s>",
-			  tag, pulongest (size));
-	    }
-	  else
-	    {
-	      gdb_printf (stream, "<special block tag=%d>", tag);
-	    }
-	  break;
-	}
-      return;
-    }
-
-  /* Value is 0 (NULL pointer in OCaml, though rare).  */
-  gdb_printf (stream, "<null>");
+  ocaml_print_value (gdbarch, raw_val, stream, recurse, options);
 }
