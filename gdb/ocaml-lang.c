@@ -26,6 +26,9 @@
 #include "cp-support.h"
 #include "gdbarch.h"
 #include "parser-defs.h"
+#include "valprint.h"
+#include "value.h"
+#include "extract-store-integer.h"
 
 /* The name of the symbol to use to get the name of the main subprogram.  */
 static const char OCAML_MAIN[] = "camlDune__exe__Main";
@@ -307,14 +310,195 @@ ocaml_immediate_int_val (LONGEST val)
   return val >> 1;
 }
 
+/* Read the header of an OCaml block.
+
+   OCaml blocks are stored in memory with a header word immediately before
+   the block pointer. The header contains:
+   - Bits 0-7: tag (identifies block type)
+   - Bits 8-9: color (for garbage collector)
+   - Bits 10+: size in words
+
+   Returns true on success, false on memory read error.  */
+
+bool
+ocaml_read_block_header (struct gdbarch *gdbarch, CORE_ADDR addr,
+			 ULONGEST *header)
+{
+  int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+  gdb_byte buf[8];  /* Enough for 64-bit pointers.  */
+
+  if (ptr_size > sizeof (buf))
+    return false;
+
+  /* Read the header word at (addr - ptr_size).  */
+  CORE_ADDR header_addr = addr - ptr_size;
+
+  if (target_read_memory (header_addr, buf, ptr_size) != 0)
+    return false;
+
+  *header = extract_unsigned_integer (buf, ptr_size, byte_order);
+  return true;
+}
+
+/* Extract the tag from an OCaml block header.
+   The tag is stored in the lower 8 bits of the header.  */
+
+int
+ocaml_header_tag (ULONGEST header)
+{
+  return header & 0xFF;
+}
+
+/* Extract the size (in words) from an OCaml block header.
+   The size is stored in bits 10 and above.  */
+
+ULONGEST
+ocaml_header_size (ULONGEST header)
+{
+  return header >> 10;
+}
+
 /* Implement la_value_print_inner for OCaml.
-   For Stage 1-2, we delegate to C-style printing.
-   This will be enhanced in Stage 4 with OCaml-specific value representation.  */
+
+   OCaml uses a tagged value representation:
+   - Immediate integers: LSB = 1, value = raw_value >> 1
+   - Block pointers: LSB = 0, points to heap-allocated data
+   - Special immediate values: (), true, false, [], None
+
+   This function detects the value type and prints it appropriately.  */
 
 void
 ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 			 const struct value_print_options *options)
 {
-  /* Delegate to C value printing for now.  */
-  c_value_print_inner (val, stream, recurse, options);
+  struct type *type = check_typedef (val->type ());
+  struct gdbarch *gdbarch = type->arch ();
+
+  /* For now, only handle integer-sized values that could be OCaml values.
+     Other types (structs, arrays, etc.) delegate to C printing.  */
+  if (type->code () != TYPE_CODE_INT && type->code () != TYPE_CODE_PTR)
+    {
+      c_value_print_inner (val, stream, recurse, options);
+      return;
+    }
+
+  /* Extract the raw value.  */
+  LONGEST raw_val = value_as_long (val);
+
+  /* Check for special immediate values first.
+     Note: unit, false, [], and None all have the same representation (1).
+     We can't distinguish between them without type information.  */
+  if (raw_val == OCAML_VAL_TRUE)
+    {
+      gdb_puts ("true", stream);
+      return;
+    }
+
+  /* Check if this is an immediate integer.  */
+  if (ocaml_is_immediate_int (raw_val))
+    {
+      LONGEST int_val = ocaml_immediate_int_val (raw_val);
+
+      /* Could be unit, false, [], or None if value is 0 (raw 1).  */
+      if (int_val == 0)
+	{
+	  /* Without type info, we'll just show it as an int.
+	     In Stage 5, we'll use type information to distinguish these.  */
+	  gdb_printf (stream, "%s", plongest (int_val));
+	}
+      else
+	{
+	  gdb_printf (stream, "%s", plongest (int_val));
+	}
+      return;
+    }
+
+  /* Check if this is a block pointer.  */
+  if (ocaml_is_block (raw_val))
+    {
+      CORE_ADDR addr = (CORE_ADDR) raw_val;
+      ULONGEST header;
+
+      /* Try to read the block header.  */
+      if (!ocaml_read_block_header (gdbarch, addr, &header))
+	{
+	  /* Can't read memory, fall back to showing the address.  */
+	  gdb_printf (stream, "<block at %s>",
+		      paddress (gdbarch, addr));
+	  return;
+	}
+
+      int tag = ocaml_header_tag (header);
+      ULONGEST size = ocaml_header_size (header);
+
+      /* Handle different block types based on tag.  */
+      switch (tag)
+	{
+	case OCAML_TAG_STRING:
+	  /* OCaml string - try to print it.  */
+	  {
+	    /* Read the string data. For now, just show it's a string.
+	       Full string printing will be improved in Stage 5.  */
+	    gdb_printf (stream, "<string[%s]>", pulongest (size));
+	  }
+	  break;
+
+	case OCAML_TAG_DOUBLE:
+	  /* OCaml float (always 64-bit).  */
+	  {
+	    gdb_byte buf[8];
+	    if (target_read_memory (addr, buf, 8) == 0)
+	      {
+		double d;
+		memcpy (&d, buf, 8);
+		gdb_printf (stream, "%g", d);
+	      }
+	    else
+	      {
+		gdb_puts ("<float>", stream);
+	      }
+	  }
+	  break;
+
+	case OCAML_TAG_DOUBLE_ARRAY:
+	  gdb_printf (stream, "<float array[%s]>", pulongest (size));
+	  break;
+
+	case OCAML_TAG_CLOSURE:
+	  gdb_printf (stream, "<closure>");
+	  break;
+
+	case OCAML_TAG_OBJECT:
+	  gdb_printf (stream, "<object>");
+	  break;
+
+	case OCAML_TAG_CUSTOM:
+	  gdb_printf (stream, "<custom>");
+	  break;
+
+	case OCAML_TAG_ABSTRACT:
+	  gdb_printf (stream, "<abstract>");
+	  break;
+
+	default:
+	  /* Structured block (tuple, record, variant, list, etc.).
+	     Tags 0-245 are used for variants and structured data.
+	     Full ADT printing will be implemented in Stage 5.  */
+	  if (tag < OCAML_TAG_LAZY)
+	    {
+	      gdb_printf (stream, "<block tag=%d size=%s>",
+			  tag, pulongest (size));
+	    }
+	  else
+	    {
+	      gdb_printf (stream, "<special block tag=%d>", tag);
+	    }
+	  break;
+	}
+      return;
+    }
+
+  /* Value is 0 (NULL pointer in OCaml, though rare).  */
+  gdb_printf (stream, "<null>");
 }

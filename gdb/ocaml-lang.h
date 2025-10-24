@@ -75,6 +75,17 @@ extern bool ocaml_is_block (LONGEST val);
 /* Extract the integer value from an immediate int (shift right by 1).  */
 extern LONGEST ocaml_immediate_int_val (LONGEST val);
 
+/* Read the header of an OCaml block given its address.  Returns true on
+   success, false on memory read error.  */
+extern bool ocaml_read_block_header (struct gdbarch *gdbarch, CORE_ADDR addr,
+				     ULONGEST *header);
+
+/* Extract the tag from an OCaml block header.  */
+extern int ocaml_header_tag (ULONGEST header);
+
+/* Extract the size (in words) from an OCaml block header.  */
+extern ULONGEST ocaml_header_size (ULONGEST header);
+
 /* OCaml block tags (used in heap blocks).  */
 #define OCAML_TAG_LAZY           246
 #define OCAML_TAG_CLOSURE        247
