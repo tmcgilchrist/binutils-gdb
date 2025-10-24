@@ -1255,6 +1255,7 @@ SFILES = \
 	gcore-elf.c \
 	gdb.c \
 	go-exp.y \
+	ocaml-exp.y \
 	m2-exp.y \
 	p-exp.y \
 	proc-service.list \
@@ -2069,6 +2070,7 @@ YYFILES = \
 	f-exp.c \
 	go-exp.c \
 	m2-exp.c \
+	ocaml-exp.c \
 	p-exp.c
 
 # ada-lex.c is included by another file, so it shouldn't wind up as a
@@ -2448,7 +2450,7 @@ local-maintainer-clean:
 	rm -f c-exp.c \
 		cp-name-parser.c \
 		ada-lex.c ada-exp.c \
-		d-exp.c f-exp.c go-exp.c m2-exp.c p-exp.c
+		d-exp.c f-exp.c go-exp.c m2-exp.c ocaml-exp.c p-exp.c
 	rm -f TAGS
 	rm -f $(YYFILES)
 	rm -f nm.h config.status

@@ -205,9 +205,7 @@ public:
 
   int parser (struct parser_state *ps) const override
   {
-    /* No parser yet - will be implemented in Stage 6.
-       Return 0 to indicate parsing not supported.  */
-    return 0;
+    return ocaml_parse (ps);
   }
 
   /* See language.h.  */
