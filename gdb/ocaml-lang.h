@@ -28,6 +28,7 @@
 
 struct builtin_ocaml_type
 {
+  /* Core types */
   struct type *builtin_void = nullptr;
   struct type *builtin_unit = nullptr;
   struct type *builtin_bool = nullptr;
@@ -35,9 +36,19 @@ struct builtin_ocaml_type
   struct type *builtin_char = nullptr;
   struct type *builtin_float = nullptr;
   struct type *builtin_string = nullptr;
+
+  /* Fixed-size integer types */
   struct type *builtin_int32 = nullptr;
   struct type *builtin_int64 = nullptr;
   struct type *builtin_nativeint = nullptr;
+
+  /* Additional numeric types */
+  struct type *builtin_uint8 = nullptr;   /* For bytes */
+  struct type *builtin_uint16 = nullptr;
+
+  /* OCaml runtime representation types */
+  struct type *builtin_value = nullptr;   /* Generic OCaml value (tagged word) */
+  struct type *builtin_block = nullptr;   /* Pointer to heap block */
 };
 
 /* Defined in ocaml-exp.y (when parser is implemented).  */
@@ -52,6 +63,37 @@ extern gdb::unique_xmalloc_ptr<char> ocaml_demangle (const char *mangled,
 						     int options);
 
 extern const struct builtin_ocaml_type *builtin_ocaml_type (struct gdbarch *);
+
+/* OCaml value representation helpers.  */
+
+/* Check if a value is an immediate integer (LSB = 1).  */
+extern bool ocaml_is_immediate_int (LONGEST val);
+
+/* Check if a value is a pointer to a heap block (LSB = 0).  */
+extern bool ocaml_is_block (LONGEST val);
+
+/* Extract the integer value from an immediate int (shift right by 1).  */
+extern LONGEST ocaml_immediate_int_val (LONGEST val);
+
+/* OCaml block tags (used in heap blocks).  */
+#define OCAML_TAG_LAZY           246
+#define OCAML_TAG_CLOSURE        247
+#define OCAML_TAG_OBJECT         248
+#define OCAML_TAG_INFIX          249
+#define OCAML_TAG_FORWARD        250
+#define OCAML_TAG_NO_SCAN        251
+#define OCAML_TAG_ABSTRACT       251
+#define OCAML_TAG_STRING         252
+#define OCAML_TAG_DOUBLE         253
+#define OCAML_TAG_DOUBLE_ARRAY   254
+#define OCAML_TAG_CUSTOM         255
+
+/* Special immediate values.  */
+#define OCAML_VAL_UNIT           1      /* () */
+#define OCAML_VAL_FALSE          1      /* false */
+#define OCAML_VAL_TRUE           3      /* true */
+#define OCAML_VAL_EMPTY_LIST     1      /* [] */
+#define OCAML_VAL_NONE           1      /* None */
 
 /* Implement la_value_print_inner for OCaml.  */
 

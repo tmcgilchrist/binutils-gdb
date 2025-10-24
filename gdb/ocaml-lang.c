@@ -107,6 +107,10 @@ public:
     add (builtin->builtin_int32);
     add (builtin->builtin_int64);
     add (builtin->builtin_nativeint);
+    add (builtin->builtin_uint8);
+    add (builtin->builtin_uint16);
+    add (builtin->builtin_value);
+    add (builtin->builtin_block);
 
     lai->set_string_char_type (builtin->builtin_char);
     lai->set_bool_type (builtin->builtin_bool, "bool");
@@ -222,6 +226,23 @@ build_ocaml_types (struct gdbarch *gdbarch)
   builtin_ocaml_type->builtin_nativeint
     = init_integer_type (alloc, gdbarch_ptr_bit (gdbarch), 0, "nativeint");
 
+  /* Additional numeric types for bytes and other uses.  */
+  builtin_ocaml_type->builtin_uint8
+    = init_integer_type (alloc, 8, 1, "uint8");
+
+  builtin_ocaml_type->builtin_uint16
+    = init_integer_type (alloc, 16, 1, "uint16");
+
+  /* OCaml runtime value representation types.
+     value: A tagged word - either an immediate int (LSB=1) or pointer (LSB=0).
+     block: A pointer to a heap-allocated block with header.  */
+  builtin_ocaml_type->builtin_value
+    = init_integer_type (alloc, gdbarch_ptr_bit (gdbarch), 1, "value");
+
+  builtin_ocaml_type->builtin_block
+    = init_pointer_type (alloc, gdbarch_ptr_bit (gdbarch), "block",
+			 builtin_ocaml_type->builtin_value);
+
   return builtin_ocaml_type;
 }
 
@@ -242,8 +263,46 @@ builtin_ocaml_type (struct gdbarch *gdbarch)
   return result;
 }
 
+/* OCaml value representation helper functions.
+
+   OCaml uses a tagged representation for values:
+   - Immediate integers have LSB = 1, actual value is shifted right by 1
+   - Pointers to heap blocks have LSB = 0
+   - Heap blocks have a header word containing size, color, and tag info
+
+   This allows OCaml's garbage collector to distinguish pointers from ints
+   without requiring separate type information at runtime.  */
+
+/* Check if a value is an immediate integer (LSB = 1).  */
+
+bool
+ocaml_is_immediate_int (LONGEST val)
+{
+  return (val & 1) != 0;
+}
+
+/* Check if a value is a pointer to a heap block (LSB = 0).  */
+
+bool
+ocaml_is_block (LONGEST val)
+{
+  return (val & 1) == 0 && val != 0;
+}
+
+/* Extract the integer value from an immediate int (shift right by 1).
+
+   OCaml represents integer n as (n << 1) | 1, so to get the actual value,
+   we perform an arithmetic right shift by 1 to preserve the sign.  */
+
+LONGEST
+ocaml_immediate_int_val (LONGEST val)
+{
+  /* Arithmetic right shift preserves sign for negative numbers.  */
+  return val >> 1;
+}
+
 /* Implement la_value_print_inner for OCaml.
-   For Stage 1, we delegate to C-style printing.
+   For Stage 1-2, we delegate to C-style printing.
    This will be enhanced in Stage 4 with OCaml-specific value representation.  */
 
 void
