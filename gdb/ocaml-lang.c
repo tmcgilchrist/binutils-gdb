@@ -47,15 +47,21 @@ ocaml_main_name (void)
   return NULL;
 }
 
-/* Implements the la_demangle language_defn routine for language OCaml.  */
+/* Implements the la_demangle language_defn routine for language OCaml.
+
+   OCaml uses a specific mangling scheme where symbols are prefixed with _O
+   followed by encoded module paths and identifiers. The oxcaml_demangle
+   function in libiberty handles the decoding.
+
+   Examples:
+   - _O4List3map -> List.map
+   - _OModuleA__ModuleB__function -> ModuleA.ModuleB.function  */
 
 gdb::unique_xmalloc_ptr<char>
 ocaml_demangle (const char *symbol, int options)
 {
-  /* OCaml symbols typically use the pattern Module__function.
-     For now, we don't perform demangling and return the symbol as-is.
-     This will be implemented in Stage 3.  */
-  return gdb_demangle (symbol, options);
+  /* Try OCaml-specific demangling using libiberty's oxcaml_demangle.  */
+  return gdb_demangle (symbol, options | DMGL_OXCAML);
 }
 
 /* Class representing the OCaml language.  */
