@@ -700,15 +700,125 @@ ocaml_is_tuple_type (struct type *type)
   return true;
 }
 
+/* Check if a variant type is unboxed.
+
+   Unboxed variants are single-constructor variants where the payload is stored
+   directly without OCaml's block wrapper. In OCaml source:
+
+     type t = A of int [@@unboxed]
+
+   At runtime, this is stored as just the int value, not a block.
+
+   Detection: A variant type with exactly one variant and the variant has
+   no discriminant range (or matches all values).  */
+
+static bool
+ocaml_is_unboxed_variant (struct type *type)
+{
+  const gdb::array_view<variant_part> *parts = ocaml_get_variant_parts (type);
+  if (parts == nullptr || parts->empty ())
+    return false;
+
+  const variant_part &part = (*parts)[0];
+
+  /* Unboxed variants have exactly one variant.  */
+  if (part.variants.size () != 1)
+    return false;
+
+  /* The single variant should be the default (no specific discriminant).  */
+  const variant &v = part.variants[0];
+  return v.is_default ();
+}
+
+/* Check if a record type is unboxed.
+
+   Unboxed records are single-field records where the field is stored directly
+   without the OCaml block wrapper. In OCaml source:
+
+     type t = { x: int } [@@unboxed]
+
+   At runtime, this is stored as just the int value, not a block.
+
+   Detection: A record type with exactly one field.  */
+
+static bool
+ocaml_is_unboxed_record (struct type *type)
+{
+  if (!ocaml_is_record_type (type))
+    return false;
+
+  /* Unboxed records have exactly one field.  */
+  return type->num_fields () == 1;
+}
+
+/* Print an unboxed OCaml variant value using DWARF type information.
+
+   Unboxed variants are single-constructor variants stored without wrapping:
+     type t = A of int [@@unboxed]
+
+   The value is stored directly as the payload type, not as an OCaml block.
+
+   Example: For `type t = Wrapper of int [@@unboxed]`, the value 42 is
+   stored as immediate int 42, not as a block.
+
+   Returns true if successfully printed, false otherwise.  */
+
+static bool
+ocaml_print_unboxed_variant (struct value *val, struct type *type,
+			      struct ui_file *stream, int recurse,
+			      const struct value_print_options *options)
+{
+  struct gdbarch *gdbarch = type->arch ();
+  const gdb::array_view<variant_part> *parts = ocaml_get_variant_parts (type);
+
+  if (parts == nullptr || parts->empty ())
+    return false;
+
+  const variant_part &part = (*parts)[0];
+  if (part.variants.size () != 1)
+    return false;
+
+  const variant &var = part.variants[0];
+
+  /* Get the constructor name.  */
+  const char *constructor_name = ocaml_get_constructor_name (type, var);
+  if (constructor_name == nullptr)
+    constructor_name = "<unboxed>";
+
+  /* Print the constructor name.  */
+  gdb_puts (constructor_name, stream);
+
+  /* If the variant has a field, print the value directly.
+     For unboxed variants, the value is NOT in a block - it's stored directly.  */
+  if (var.first_field < var.last_field && var.first_field < type->num_fields ())
+    {
+      gdb_puts (" ", stream);
+
+      /* The value is stored directly - just print it according to its type.  */
+      LONGEST raw_val = value_as_long (val);
+      ocaml_print_value (gdbarch, raw_val, stream, recurse + 1, options);
+    }
+
+  return true;
+}
+
 /* Print an OCaml variant value using DWARF type information.
 
    Variants are OCaml's sum types (type t = A | B of int | C of string).
    With DWARF info, we can print constructor names and fields instead of
    raw tags.
 
+   This function handles both:
+   - Regular variants: discriminant values are sequential (0, 1, 2, ...)
+   - Polymorphic variants: discriminant values are hash-based (e.g., 0x3c4fc236)
+
    Example:
    Before: <block tag=0 size=1>
    After:  Some 42
+
+   Polymorphic variant example:
+   Before: <block tag=0x3c4fc236 size=1>
+   After:  `Blue 42
 
    Returns true if successfully printed, false if no variant info available.  */
 
@@ -727,16 +837,20 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
   /* OCaml types should have exactly one variant_part.  */
   const variant_part &part = (*parts)[0];
 
-  /* Read the discriminant value from the OCaml value.  */
+  /* Read the discriminant value from the OCaml value.
+     For regular variants, this is a small integer (0, 1, 2, ...).
+     For polymorphic variants, this is a hash value (large integer).  */
   LONGEST discr = ocaml_read_discriminant_from_value (gdbarch, val, part);
   if (discr < 0)
     return false;
 
-  /* Find the matching variant for this discriminant.  */
+  /* Find the matching variant for this discriminant.
+     The variant::matches() method handles both sequential and hash-based discriminants.  */
   const variant *var = ocaml_find_matching_variant (part, discr);
   if (var == nullptr)
     {
-      /* No matching variant found - print raw discriminant.  */
+      /* No matching variant found - print raw discriminant.
+	 This might be a polymorphic variant hash or an unknown constructor.  */
       gdb_printf (stream, "<variant tag=%s>", plongest (discr));
       return true;
     }
@@ -801,6 +915,46 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	}
     }
 
+  return true;
+}
+
+/* Print an unboxed OCaml record value using DWARF type information.
+
+   Unboxed records are single-field records stored without wrapping:
+     type t = { x: int } [@@unboxed]
+
+   The value is stored directly as the field value, not as an OCaml block.
+
+   Example: For `type t = { value: int } [@@unboxed]`, the value 42 is
+   stored as immediate int 42, not as a block.
+
+   Returns true if successfully printed, false otherwise.  */
+
+static bool
+ocaml_print_unboxed_record (struct value *val, struct type *type,
+			     struct ui_file *stream, int recurse,
+			     const struct value_print_options *options)
+{
+  struct gdbarch *gdbarch = type->arch ();
+
+  /* Unboxed records must have exactly one field.  */
+  if (type->num_fields () != 1)
+    return false;
+
+  const field &f = type->field (0);
+  const char *field_name = f.name ();
+
+  /* Print as a record with the single field.  */
+  gdb_puts ("{", stream);
+
+  if (field_name != nullptr && field_name[0] != '\0')
+    gdb_printf (stream, "%s = ", field_name);
+
+  /* The value is stored directly - just print it.  */
+  LONGEST raw_val = value_as_long (val);
+  ocaml_print_value (gdbarch, raw_val, stream, recurse + 1, options);
+
+  gdb_puts ("}", stream);
   return true;
 }
 
@@ -991,7 +1145,15 @@ ocaml_print_with_type (struct value *val, struct ui_file *stream, int recurse,
   /* Resolve typedefs to get the actual type.  */
   type = check_typedef (type);
 
-  /* Check for variant types (sum types with variant_part).  */
+  /* Check for unboxed variant types FIRST.
+     Unboxed variants need special handling since the value is stored
+     directly without OCaml's block wrapper.  */
+  if (ocaml_is_unboxed_variant (type))
+    {
+      return ocaml_print_unboxed_variant (val, type, stream, recurse, options);
+    }
+
+  /* Check for regular variant types (sum types with variant_part).  */
   if (ocaml_get_variant_parts (type) != nullptr)
     {
       return ocaml_print_variant_with_type (val, type, stream, recurse, options);
@@ -1001,6 +1163,13 @@ ocaml_print_with_type (struct value *val, struct ui_file *stream, int recurse,
   if (type->code () == TYPE_CODE_ARRAY)
     {
       return ocaml_print_array_with_type (val, type, stream, recurse, options);
+    }
+
+  /* Check for unboxed record types.
+     Must check before regular records since unboxed records are a subset.  */
+  if (ocaml_is_unboxed_record (type))
+    {
+      return ocaml_print_unboxed_record (val, type, stream, recurse, options);
     }
 
   /* Check for record types (product types with named fields).  */
