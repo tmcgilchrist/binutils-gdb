@@ -67,7 +67,7 @@
 
 
 /* First part of user prologue.  */
-#line 48 "ocaml-exp.y"
+#line 72 "ocaml-exp.y"
 
 
 #include "expression.h"
@@ -208,7 +208,7 @@ extern int yydebug;
 #if ! defined ocaml_exp_YYSTYPE && ! defined ocaml_exp_YYSTYPE_IS_DECLARED
 union ocaml_exp_YYSTYPE
 {
-#line 86 "ocaml-exp.y"
+#line 110 "ocaml-exp.y"
 
     struct {
       LONGEST val;
@@ -306,7 +306,7 @@ typedef enum ocaml_exp_yysymbol_kind_t ocaml_exp_yysymbol_kind_t;
 
 
 /* Second part of user prologue.  */
-#line 101 "ocaml-exp.y"
+#line 125 "ocaml-exp.y"
 
 /* ocaml_exp_YYSTYPE gets defined by %union */
 static int parse_number (struct parser_state *, const char *,
@@ -696,11 +696,11 @@ static const yytype_int8 yytranslate[] =
 /* YYRLINE[YYN] -- Source line where rule number YYN was defined.  */
 static const yytype_int16 yyrline[] =
 {
-       0,   148,   148,   152,   153,   155,   157,   159,   161,   163,
-     165,   167,   169,   171,   173,   175,   177,   179,   181,   190,
-     195,   204,   218,   223,   230,   235,   241,   247,   253,   275,
-     299,   303,   304,   305,   306,   310,   315,   330,   336,   348,
-     355,   361,   370,   379,   384
+       0,   172,   172,   176,   177,   179,   181,   183,   185,   187,
+     189,   191,   193,   195,   197,   199,   201,   203,   205,   214,
+     219,   228,   242,   247,   254,   259,   265,   271,   277,   299,
+     323,   327,   328,   329,   330,   334,   339,   354,   360,   372,
+     379,   385,   394,   403,   408
 };
 #endif
 
@@ -1456,91 +1456,91 @@ yyreduce:
   switch (yyn)
     {
   case 4: /* exp: exp '+' exp  */
-#line 154 "ocaml-exp.y"
+#line 178 "ocaml-exp.y"
                 { pstate->wrap2<add_operation> (); }
 #line 1463 "ocaml-exp.c.tmp"
     break;
 
   case 5: /* exp: exp '-' exp  */
-#line 156 "ocaml-exp.y"
+#line 180 "ocaml-exp.y"
                 { pstate->wrap2<sub_operation> (); }
 #line 1469 "ocaml-exp.c.tmp"
     break;
 
   case 6: /* exp: exp '*' exp  */
-#line 158 "ocaml-exp.y"
+#line 182 "ocaml-exp.y"
                 { pstate->wrap2<mul_operation> (); }
 #line 1475 "ocaml-exp.c.tmp"
     break;
 
   case 7: /* exp: exp '/' exp  */
-#line 160 "ocaml-exp.y"
+#line 184 "ocaml-exp.y"
                 { pstate->wrap2<div_operation> (); }
 #line 1481 "ocaml-exp.c.tmp"
     break;
 
   case 8: /* exp: exp '%' exp  */
-#line 162 "ocaml-exp.y"
+#line 186 "ocaml-exp.y"
                 { pstate->wrap2<rem_operation> (); }
 #line 1487 "ocaml-exp.c.tmp"
     break;
 
   case 9: /* exp: exp '<' exp  */
-#line 164 "ocaml-exp.y"
+#line 188 "ocaml-exp.y"
                 { pstate->wrap2<less_operation> (); }
 #line 1493 "ocaml-exp.c.tmp"
     break;
 
   case 10: /* exp: exp '>' exp  */
-#line 166 "ocaml-exp.y"
+#line 190 "ocaml-exp.y"
                 { pstate->wrap2<gtr_operation> (); }
 #line 1499 "ocaml-exp.c.tmp"
     break;
 
   case 11: /* exp: exp LEQ exp  */
-#line 168 "ocaml-exp.y"
+#line 192 "ocaml-exp.y"
                 { pstate->wrap2<leq_operation> (); }
 #line 1505 "ocaml-exp.c.tmp"
     break;
 
   case 12: /* exp: exp GEQ exp  */
-#line 170 "ocaml-exp.y"
+#line 194 "ocaml-exp.y"
                 { pstate->wrap2<geq_operation> (); }
 #line 1511 "ocaml-exp.c.tmp"
     break;
 
   case 13: /* exp: exp '=' exp  */
-#line 172 "ocaml-exp.y"
+#line 196 "ocaml-exp.y"
                 { pstate->wrap2<equal_operation> (); }
 #line 1517 "ocaml-exp.c.tmp"
     break;
 
   case 14: /* exp: exp NEQ exp  */
-#line 174 "ocaml-exp.y"
+#line 198 "ocaml-exp.y"
                 { pstate->wrap2<notequal_operation> (); }
 #line 1523 "ocaml-exp.c.tmp"
     break;
 
   case 15: /* exp: exp ANDAND exp  */
-#line 176 "ocaml-exp.y"
+#line 200 "ocaml-exp.y"
                 { pstate->wrap2<logical_and_operation> (); }
 #line 1529 "ocaml-exp.c.tmp"
     break;
 
   case 16: /* exp: exp OROR exp  */
-#line 178 "ocaml-exp.y"
+#line 202 "ocaml-exp.y"
                 { pstate->wrap2<logical_or_operation> (); }
 #line 1535 "ocaml-exp.c.tmp"
     break;
 
   case 17: /* exp: '-' exp  */
-#line 180 "ocaml-exp.y"
+#line 204 "ocaml-exp.y"
                 { pstate->wrap<unary_neg_operation> (); }
 #line 1541 "ocaml-exp.c.tmp"
     break;
 
   case 18: /* exp: IF exp THEN exp ELSE exp  */
-#line 182 "ocaml-exp.y"
+#line 206 "ocaml-exp.y"
                 {
 		  operation_up last = pstate->pop ();
 		  operation_up mid = pstate->pop ();
@@ -1553,7 +1553,7 @@ yyreduce:
     break;
 
   case 19: /* exp: exp COLONCOLON exp  */
-#line 191 "ocaml-exp.y"
+#line 215 "ocaml-exp.y"
                 {
 		  /* List cons operator - creates a cons cell (tag 0, size 2) */
 		  pstate->wrap2<comma_operation> ();
@@ -1562,7 +1562,7 @@ yyreduce:
     break;
 
   case 20: /* exp: LET IDENT '=' exp IN exp  */
-#line 196 "ocaml-exp.y"
+#line 220 "ocaml-exp.y"
                 {
 		  /* TODO: Implement proper let binding
 		     For now, just evaluate the body expression */
@@ -1575,7 +1575,7 @@ yyreduce:
     break;
 
   case 21: /* exp: exp exp  */
-#line 205 "ocaml-exp.y"
+#line 229 "ocaml-exp.y"
                 {
 		  /* Function application
 		     In OCaml, 'f x' applies function f to argument x */
@@ -1590,7 +1590,7 @@ yyreduce:
     break;
 
   case 22: /* simple_exp: INT  */
-#line 219 "ocaml-exp.y"
+#line 243 "ocaml-exp.y"
                 {
 		  pstate->push_new<long_const_operation>
 		    ((yyvsp[0].typed_val_int).type, (yyvsp[0].typed_val_int).val);
@@ -1599,7 +1599,7 @@ yyreduce:
     break;
 
   case 23: /* simple_exp: FLOAT  */
-#line 224 "ocaml-exp.y"
+#line 248 "ocaml-exp.y"
                 {
 		  float_data data;
 		  std::copy (std::begin ((yyvsp[0].typed_val_float).val), std::end ((yyvsp[0].typed_val_float).val),
@@ -1610,7 +1610,7 @@ yyreduce:
     break;
 
   case 24: /* simple_exp: STRING  */
-#line 231 "ocaml-exp.y"
+#line 255 "ocaml-exp.y"
                 {
 		  pstate->push_new<string_operation>
 		    (copy_name ((yyvsp[0].sval)));
@@ -1619,7 +1619,7 @@ yyreduce:
     break;
 
   case 25: /* simple_exp: TRUE_KEYWORD  */
-#line 236 "ocaml-exp.y"
+#line 260 "ocaml-exp.y"
                 {
 		  /* OCaml true = tagged int 3 */
 		  pstate->push_new<long_const_operation>
@@ -1629,7 +1629,7 @@ yyreduce:
     break;
 
   case 26: /* simple_exp: FALSE_KEYWORD  */
-#line 242 "ocaml-exp.y"
+#line 266 "ocaml-exp.y"
                 {
 		  /* OCaml false = tagged int 1 */
 		  pstate->push_new<long_const_operation>
@@ -1639,7 +1639,7 @@ yyreduce:
     break;
 
   case 27: /* simple_exp: UNIT  */
-#line 248 "ocaml-exp.y"
+#line 272 "ocaml-exp.y"
                 {
 		  /* OCaml () = tagged int 1 */
 		  pstate->push_new<long_const_operation>
@@ -1649,7 +1649,7 @@ yyreduce:
     break;
 
   case 28: /* simple_exp: IDENT  */
-#line 254 "ocaml-exp.y"
+#line 278 "ocaml-exp.y"
                 {
 		  /* Variable or function name - look up symbol */
 		  std::string name = copy_name ((yyvsp[0].sval));
@@ -1675,7 +1675,7 @@ yyreduce:
     break;
 
   case 29: /* simple_exp: IDENT '.' IDENT  */
-#line 276 "ocaml-exp.y"
+#line 300 "ocaml-exp.y"
                 {
 		  /* Module-qualified name: Module.name */
 		  std::string fullname = std::string ((yyvsp[-2].sval).ptr, (yyvsp[-2].sval).length) + "."
@@ -1703,7 +1703,7 @@ yyreduce:
     break;
 
   case 30: /* simple_exp: '(' exp ')'  */
-#line 300 "ocaml-exp.y"
+#line 324 "ocaml-exp.y"
                 {
 		  /* Parenthesized expression */
 		}
@@ -1711,7 +1711,7 @@ yyreduce:
     break;
 
   case 35: /* tuple_exp: '(' exp ',' exp ')'  */
-#line 311 "ocaml-exp.y"
+#line 335 "ocaml-exp.y"
                 {
 		  /* 2-tuple */
 		  pstate->wrap2<comma_operation> ();
@@ -1720,7 +1720,7 @@ yyreduce:
     break;
 
   case 36: /* tuple_exp: '(' exp ',' exp ',' exp ')'  */
-#line 316 "ocaml-exp.y"
+#line 340 "ocaml-exp.y"
                 {
 		  /* 3-tuple */
 		  operation_up third = pstate->pop ();
@@ -1736,7 +1736,7 @@ yyreduce:
     break;
 
   case 37: /* list_exp: '[' ']'  */
-#line 331 "ocaml-exp.y"
+#line 355 "ocaml-exp.y"
                 {
 		  /* Empty list = tagged int 1 */
 		  pstate->push_new<long_const_operation>
@@ -1746,7 +1746,7 @@ yyreduce:
     break;
 
   case 38: /* list_exp: '[' exp ']'  */
-#line 337 "ocaml-exp.y"
+#line 361 "ocaml-exp.y"
                 {
 		  /* Single element list [x] = x :: [] */
 		  operation_up elem = pstate->pop ();
@@ -1759,7 +1759,7 @@ yyreduce:
     break;
 
   case 39: /* array_exp: '[' '|' '|' ']'  */
-#line 349 "ocaml-exp.y"
+#line 373 "ocaml-exp.y"
                 {
 		  /* Empty array [||]
 		     TODO: Proper array representation - for now, create a marker */
@@ -1770,7 +1770,7 @@ yyreduce:
     break;
 
   case 40: /* array_exp: '[' '|' exp '|' ']'  */
-#line 356 "ocaml-exp.y"
+#line 380 "ocaml-exp.y"
                 {
 		  /* Single element array [|x|]
 		     OCaml arrays are blocks with tag 0, similar to tuples
@@ -1780,7 +1780,7 @@ yyreduce:
     break;
 
   case 41: /* array_exp: '[' '|' exp ';' exp '|' ']'  */
-#line 362 "ocaml-exp.y"
+#line 386 "ocaml-exp.y"
                 {
 		  /* Two-element array [|x; y|]
 		     Represented as a 2-tuple for debugging purposes */
@@ -1790,7 +1790,7 @@ yyreduce:
     break;
 
   case 42: /* record_exp: '{' record_fields '}'  */
-#line 371 "ocaml-exp.y"
+#line 395 "ocaml-exp.y"
                 {
 		  /* Record expression
 		     TODO: Proper record representation with field names
@@ -1800,7 +1800,7 @@ yyreduce:
     break;
 
   case 43: /* record_fields: IDENT '=' exp  */
-#line 380 "ocaml-exp.y"
+#line 404 "ocaml-exp.y"
                 {
 		  /* Single field - value is already on stack, discard field name for now
 		     TODO: Store field names for better debugging */
@@ -1809,7 +1809,7 @@ yyreduce:
     break;
 
   case 44: /* record_fields: record_fields ';' IDENT '=' exp  */
-#line 385 "ocaml-exp.y"
+#line 409 "ocaml-exp.y"
                 {
 		  /* Multiple fields - combine with comma operation
 		     TODO: Store field names */
@@ -2012,7 +2012,7 @@ yyreturnlab:
   return yyresult;
 }
 
-#line 392 "ocaml-exp.y"
+#line 416 "ocaml-exp.y"
 
 
 /* Called to report a parse error.  */

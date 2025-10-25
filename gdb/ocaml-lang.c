@@ -502,6 +502,523 @@ static void ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
 			       struct ui_file *stream, int recurse,
 			       const struct value_print_options *options);
 
+/* ========================================================================
+   DWARF Type Information Support
+   ========================================================================
+
+   The following functions provide integration with DWARF 5 debug information
+   for OCaml. They allow GDB to use type information from the compiler to
+   provide symbolic output instead of raw memory dumps.
+
+   Key capabilities:
+   - Extract variant part information (DW_TAG_variant_part)
+   - Read discriminant values from OCaml block headers
+   - Match discriminant values to variant constructors
+   - Get constructor and field names from DWARF DIEs  */
+
+/* Get the variant part from a type.
+
+   OCaml variant types (sum types) are encoded in DWARF using DW_TAG_variant_part.
+   This function extracts the variant_part structure if it exists.
+
+   Returns the variant_part array, or nullptr if the type has no variants.  */
+
+static const gdb::array_view<variant_part> * __attribute__((unused))
+ocaml_get_variant_parts (struct type *type)
+{
+  if (type == nullptr)
+    return nullptr;
+
+  /* Check if this type has variant parts attached as a dynamic property.  */
+  dynamic_prop *variant_prop = type->dyn_prop (DYN_PROP_VARIANT_PARTS);
+  if (variant_prop == nullptr)
+    return nullptr;
+
+  if (variant_prop->kind () != PROP_VARIANT_PARTS)
+    return nullptr;
+
+  return variant_prop->variant_parts ();
+}
+
+/* Read the discriminant value from an OCaml value.
+
+   For OCaml variant types, the discriminant is stored in the block header's
+   tag field. This function reads the tag and returns it as the discriminant.
+
+   For immediate values (non-blocks), the discriminant is typically the
+   immediate value itself (used for constant constructors).
+
+   Returns the discriminant value, or -1 on error.  */
+
+static LONGEST __attribute__((unused))
+ocaml_read_discriminant_from_value (struct gdbarch *gdbarch, struct value *val,
+				    const variant_part &part)
+{
+  LONGEST val_raw = value_as_long (val);
+
+  /* Check if this is an immediate value.  */
+  if (ocaml_is_immediate_int (val_raw))
+    {
+      /* For immediate values, the discriminant is the integer value.
+	 Immediate variant constructors are encoded as integers.  */
+      return ocaml_immediate_int_val (val_raw);
+    }
+
+  /* Check if this is a block pointer.  */
+  if (ocaml_is_block (val_raw))
+    {
+      CORE_ADDR addr = (CORE_ADDR) val_raw;
+      ULONGEST header;
+
+      if (!ocaml_read_block_header (gdbarch, addr, &header))
+	return -1;
+
+      /* The discriminant is the tag field from the header.  */
+      return ocaml_header_tag (header);
+    }
+
+  /* Neither immediate nor block - should not happen for variant types.  */
+  return -1;
+}
+
+/* Find the matching variant for a given discriminant value.
+
+   Iterates through the variants in the variant_part and returns the first
+   one that matches the discriminant value.
+
+   Returns the matching variant, or nullptr if no match found.  */
+
+__attribute__((unused))
+static const variant *
+ocaml_find_matching_variant (const variant_part &part, LONGEST discr_value)
+{
+  for (const variant &v : part.variants)
+    {
+      /* Check if this variant matches the discriminant.
+	 The is_unsigned parameter should match the discriminant type.  */
+      if (v.matches (discr_value, part.is_unsigned))
+	return &v;
+    }
+
+  /* Check if there's a default variant (no discriminants).  */
+  for (const variant &v : part.variants)
+    {
+      if (v.is_default ())
+	return &v;
+    }
+
+  return nullptr;
+}
+
+/* Get the constructor name for a variant.
+
+   Extracts the name from the DWARF field information associated with
+   the variant.
+
+   Returns the constructor name, or nullptr if not available.  */
+
+__attribute__((unused))
+static const char *
+ocaml_get_constructor_name (struct type *type, const variant &v)
+{
+  /* The variant controls a range of fields. For OCaml variants,
+     the constructor name is typically stored in the first field's name
+     or in a special naming convention.
+
+     Note: The exact field that contains the name may vary depending on
+     how the OCaml compiler emits DWARF. We need to examine the actual
+     DWARF output to determine the correct field.  */
+
+  if (v.first_field >= 0 && v.first_field < type->num_fields ())
+    {
+      const field &f = type->field (v.first_field);
+      return f.name ();
+    }
+
+  return nullptr;
+}
+
+/* Check if a type is a record type (structure with named fields).
+
+   In DWARF, OCaml records are represented as DW_TAG_structure_type with
+   named members (DW_TAG_member). This function checks if the type has
+   the characteristics of a record.
+
+   Returns true if this appears to be a record type.  */
+
+static bool __attribute__((unused))
+ocaml_is_record_type (struct type *type)
+{
+  if (type == nullptr)
+    return false;
+
+  /* Records are struct types.  */
+  if (type->code () != TYPE_CODE_STRUCT)
+    return false;
+
+  /* Check if at least one field has a non-empty name.
+     Records have named fields, while tuples typically don't.  */
+  for (int i = 0; i < type->num_fields (); i++)
+    {
+      const char *name = type->field (i).name ();
+      if (name != nullptr && name[0] != '\0')
+	return true;
+    }
+
+  return false;
+}
+
+/* Check if a type is a tuple type (structure with unnamed fields).
+
+   Tuples are like records but have unnamed or empty field names.
+
+   Returns true if this appears to be a tuple type.  */
+
+static bool __attribute__((unused))
+ocaml_is_tuple_type (struct type *type)
+{
+  if (type == nullptr)
+    return false;
+
+  /* Tuples are struct types.  */
+  if (type->code () != TYPE_CODE_STRUCT)
+    return false;
+
+  /* If it has variant parts, it's a variant, not a tuple.  */
+  if (ocaml_get_variant_parts (type) != nullptr)
+    return false;
+
+  /* Check if all fields are unnamed.
+     If any field has a name, it's a record, not a tuple.  */
+  for (int i = 0; i < type->num_fields (); i++)
+    {
+      const char *name = type->field (i).name ();
+      if (name != nullptr && name[0] != '\0')
+	return false;
+    }
+
+  return true;
+}
+
+/* Print an OCaml variant value using DWARF type information.
+
+   Variants are OCaml's sum types (type t = A | B of int | C of string).
+   With DWARF info, we can print constructor names and fields instead of
+   raw tags.
+
+   Example:
+   Before: <block tag=0 size=1>
+   After:  Some 42
+
+   Returns true if successfully printed, false if no variant info available.  */
+
+static bool
+ocaml_print_variant_with_type (struct value *val, struct type *type,
+				struct ui_file *stream, int recurse,
+				const struct value_print_options *options)
+{
+  struct gdbarch *gdbarch = type->arch ();
+
+  /* Get the variant parts from the type.  */
+  const gdb::array_view<variant_part> *parts = ocaml_get_variant_parts (type);
+  if (parts == nullptr || parts->empty ())
+    return false;
+
+  /* OCaml types should have exactly one variant_part.  */
+  const variant_part &part = (*parts)[0];
+
+  /* Read the discriminant value from the OCaml value.  */
+  LONGEST discr = ocaml_read_discriminant_from_value (gdbarch, val, part);
+  if (discr < 0)
+    return false;
+
+  /* Find the matching variant for this discriminant.  */
+  const variant *var = ocaml_find_matching_variant (part, discr);
+  if (var == nullptr)
+    {
+      /* No matching variant found - print raw discriminant.  */
+      gdb_printf (stream, "<variant tag=%s>", plongest (discr));
+      return true;
+    }
+
+  /* Get the constructor name.  */
+  const char *constructor_name = ocaml_get_constructor_name (type, *var);
+  if (constructor_name == nullptr)
+    constructor_name = "<unknown>";
+
+  /* Print the constructor name.  */
+  gdb_puts (constructor_name, stream);
+
+  /* If this variant has fields, print them.  */
+  if (var->first_field < var->last_field)
+    {
+      LONGEST val_raw = value_as_long (val);
+
+      /* Check if this is a block value (not an immediate).  */
+      if (ocaml_is_block (val_raw))
+	{
+	  CORE_ADDR addr = (CORE_ADDR) val_raw;
+	  ULONGEST header;
+
+	  if (ocaml_read_block_header (gdbarch, addr, &header))
+	    {
+	      /* Print fields for this variant.
+		 For single-field constructors, print as: Constructor value
+		 For multi-field constructors, print as: Constructor (field1, field2, ...)  */
+	      int num_fields = var->last_field - var->first_field;
+
+	      if (num_fields == 1)
+		{
+		  /* Single field - print without parentheses.  */
+		  gdb_puts (" ", stream);
+
+		  LONGEST field_val;
+		  if (ocaml_read_block_field (gdbarch, addr, 0, &field_val))
+		    ocaml_print_value (gdbarch, field_val, stream, recurse + 1, options);
+		  else
+		    gdb_puts ("<error>", stream);
+		}
+	      else
+		{
+		  /* Multiple fields - print with parentheses.  */
+		  gdb_puts (" (", stream);
+
+		  for (int i = 0; i < num_fields; i++)
+		    {
+		      if (i > 0)
+			gdb_puts (", ", stream);
+
+		      LONGEST field_val;
+		      if (ocaml_read_block_field (gdbarch, addr, i, &field_val))
+			ocaml_print_value (gdbarch, field_val, stream, recurse + 1, options);
+		      else
+			gdb_puts ("<error>", stream);
+		    }
+
+		  gdb_puts (")", stream);
+		}
+	    }
+	}
+    }
+
+  return true;
+}
+
+/* Print an OCaml record value using DWARF type information.
+
+   Records are OCaml's product types with named fields (type t = { x: int; y: float }).
+   With DWARF info, we can print field names instead of positions.
+
+   Example:
+   Before: <block tag=0 size=2>
+   After:  {x = 10; y = 20}
+
+   Returns true if successfully printed, false if no record info available.  */
+
+static bool
+ocaml_print_record_with_type (struct value *val, struct type *type,
+			       struct ui_file *stream, int recurse,
+			       const struct value_print_options *options)
+{
+  struct gdbarch *gdbarch = type->arch ();
+  LONGEST val_raw = value_as_long (val);
+
+  /* Records must be blocks.  */
+  if (!ocaml_is_block (val_raw))
+    return false;
+
+  CORE_ADDR addr = (CORE_ADDR) val_raw;
+
+  /* Print record fields with their names.  */
+  gdb_puts ("{", stream);
+
+  int num_fields = type->num_fields ();
+  bool first = true;
+
+  for (int i = 0; i < num_fields; i++)
+    {
+      const field &f = type->field (i);
+      const char *field_name = f.name ();
+
+      /* Skip fields without names (shouldn't happen for records).  */
+      if (field_name == nullptr || field_name[0] == '\0')
+	continue;
+
+      if (!first)
+	gdb_puts ("; ", stream);
+      first = false;
+
+      gdb_printf (stream, "%s = ", field_name);
+
+      /* Read field value from the block.  */
+      LONGEST field_val;
+      if (ocaml_read_block_field (gdbarch, addr, i, &field_val))
+	ocaml_print_value (gdbarch, field_val, stream, recurse + 1, options);
+      else
+	gdb_puts ("<error>", stream);
+    }
+
+  gdb_puts ("}", stream);
+  return true;
+}
+
+/* Print an OCaml array value using DWARF type information.
+
+   Arrays are printed as [|elem0; elem1; elem2; ...|].
+   With DWARF info, we can distinguish arrays from tuples.
+
+   Returns true if successfully printed, false if not an array.  */
+
+static bool
+ocaml_print_array_with_type (struct value *val, struct type *type,
+			      struct ui_file *stream, int recurse,
+			      const struct value_print_options *options)
+{
+  struct gdbarch *gdbarch = type->arch ();
+  LONGEST val_raw = value_as_long (val);
+
+  /* Arrays must be blocks.  */
+  if (!ocaml_is_block (val_raw))
+    return false;
+
+  CORE_ADDR addr = (CORE_ADDR) val_raw;
+  ULONGEST header;
+
+  if (!ocaml_read_block_header (gdbarch, addr, &header))
+    return false;
+
+  ULONGEST size = ocaml_header_size (header);
+
+  /* Print array elements.  */
+  if (size == 0)
+    {
+      gdb_puts ("[||]", stream);
+      return true;
+    }
+
+  gdb_puts ("[|", stream);
+
+  /* Limit array elements to avoid excessive output.  */
+  ULONGEST max_elems = 10;
+  bool truncated = false;
+  ULONGEST print_size = size;
+  if (size > max_elems)
+    {
+      print_size = max_elems;
+      truncated = true;
+    }
+
+  for (ULONGEST i = 0; i < print_size; i++)
+    {
+      if (i > 0)
+	gdb_puts ("; ", stream);
+
+      LONGEST field_val;
+      if (ocaml_read_block_field (gdbarch, addr, i, &field_val))
+	ocaml_print_value (gdbarch, field_val, stream, recurse + 1, options);
+      else
+	gdb_puts ("<error>", stream);
+    }
+
+  if (truncated)
+    gdb_printf (stream, "; ... (%s more)", pulongest (size - print_size));
+
+  gdb_puts ("|]", stream);
+  return true;
+}
+
+/* Print an OCaml tuple value using DWARF type information.
+
+   Tuples are printed as (elem0, elem1, elem2, ...).
+   With DWARF info, we can distinguish tuples from arrays and records.
+
+   Returns true if successfully printed, false if not a tuple.  */
+
+static bool
+ocaml_print_tuple_with_type (struct value *val, struct type *type,
+			      struct ui_file *stream, int recurse,
+			      const struct value_print_options *options)
+{
+  struct gdbarch *gdbarch = type->arch ();
+  LONGEST val_raw = value_as_long (val);
+
+  /* Tuples must be blocks.  */
+  if (!ocaml_is_block (val_raw))
+    return false;
+
+  CORE_ADDR addr = (CORE_ADDR) val_raw;
+  int num_fields = type->num_fields ();
+
+  if (num_fields == 0)
+    {
+      gdb_puts ("()", stream);
+      return true;
+    }
+
+  gdb_puts ("(", stream);
+
+  for (int i = 0; i < num_fields; i++)
+    {
+      if (i > 0)
+	gdb_puts (", ", stream);
+
+      LONGEST field_val;
+      if (ocaml_read_block_field (gdbarch, addr, i, &field_val))
+	ocaml_print_value (gdbarch, field_val, stream, recurse + 1, options);
+      else
+	gdb_puts ("<error>", stream);
+    }
+
+  gdb_puts (")", stream);
+  return true;
+}
+
+/* Dispatch value printing based on DWARF type information.
+
+   This function checks if DWARF type information is available and dispatches
+   to the appropriate type-aware printing function.
+
+   Returns true if the value was printed using type information, false otherwise.  */
+
+static bool
+ocaml_print_with_type (struct value *val, struct ui_file *stream, int recurse,
+		       const struct value_print_options *options)
+{
+  struct type *type = val->type ();
+  if (type == nullptr)
+    return false;
+
+  /* Resolve typedefs to get the actual type.  */
+  type = check_typedef (type);
+
+  /* Check for variant types (sum types with variant_part).  */
+  if (ocaml_get_variant_parts (type) != nullptr)
+    {
+      return ocaml_print_variant_with_type (val, type, stream, recurse, options);
+    }
+
+  /* Check for array types.  */
+  if (type->code () == TYPE_CODE_ARRAY)
+    {
+      return ocaml_print_array_with_type (val, type, stream, recurse, options);
+    }
+
+  /* Check for record types (product types with named fields).  */
+  if (ocaml_is_record_type (type))
+    {
+      return ocaml_print_record_with_type (val, type, stream, recurse, options);
+    }
+
+  /* Check for tuple types (product types with unnamed fields).  */
+  if (ocaml_is_tuple_type (type))
+    {
+      return ocaml_print_tuple_with_type (val, type, stream, recurse, options);
+    }
+
+  /* No applicable type information - fall back to heuristic printing.  */
+  return false;
+}
+
 /* Print an OCaml tuple (block with tag 0, no specific ADT type).
    Tuples are printed as (field0, field1, field2, ...).  */
 
@@ -861,15 +1378,23 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
   struct type *type = check_typedef (val->type ());
   struct gdbarch *gdbarch = type->arch ();
 
-  /* For now, only handle integer-sized values that could be OCaml values.
-     Other types (structs, arrays, etc.) delegate to C printing.  */
-  if (type->code () != TYPE_CODE_INT && type->code () != TYPE_CODE_PTR)
+  /* Try DWARF-based printing first if type information is available.
+     This handles variants, records, and other structured types.  */
+  if (type->code () == TYPE_CODE_STRUCT || TYPE_HAS_VARIANT_PARTS (type))
     {
-      c_value_print_inner (val, stream, recurse, options);
+      if (ocaml_print_with_type (val, stream, recurse, options))
+	return;
+    }
+
+  /* For integer and pointer types, try heuristic-based OCaml value printing.  */
+  if (type->code () == TYPE_CODE_INT || type->code () == TYPE_CODE_PTR)
+    {
+      /* Extract the raw value and delegate to the recursive printer.  */
+      LONGEST raw_val = value_as_long (val);
+      ocaml_print_value (gdbarch, raw_val, stream, recurse, options);
       return;
     }
 
-  /* Extract the raw value and delegate to the recursive printer.  */
-  LONGEST raw_val = value_as_long (val);
-  ocaml_print_value (gdbarch, raw_val, stream, recurse, options);
+  /* For other types (arrays, etc.), delegate to C printing.  */
+  c_value_print_inner (val, stream, recurse, options);
 }
