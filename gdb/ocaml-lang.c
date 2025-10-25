@@ -700,6 +700,43 @@ ocaml_is_tuple_type (struct type *type)
   return true;
 }
 
+/* Check if a type is an OCaml exception type.
+
+   OCaml exceptions are similar to variants but represent the `exn` type.
+   They're declared with the `exception` keyword:
+
+     exception Simple_exception
+     exception With_payload of int
+
+   At runtime and in DWARF, exceptions are represented identically to variants
+   with DW_TAG_variant_part. The existing variant printing infrastructure
+   handles them automatically.
+
+   Detection: Check if the type name is "exn" or contains exception-related
+   naming conventions.  */
+
+__attribute__((unused)) static bool
+ocaml_is_exception_type (struct type *type)
+{
+  if (type == nullptr)
+    return false;
+
+  const char *type_name = type->name ();
+  if (type_name == nullptr)
+    return false;
+
+  /* Check if this is the universal exception type "exn".  */
+  if (strcmp (type_name, "exn") == 0)
+    return true;
+
+  /* Check if this is a specific exception type.
+     OCaml compilers may encode exception types with special naming.  */
+  if (strstr (type_name, "exception") != nullptr)
+    return true;
+
+  return false;
+}
+
 /* Check if a variant type is unboxed.
 
    Unboxed variants are single-constructor variants where the payload is stored
@@ -1153,7 +1190,11 @@ ocaml_print_with_type (struct value *val, struct ui_file *stream, int recurse,
       return ocaml_print_unboxed_variant (val, type, stream, recurse, options);
     }
 
-  /* Check for regular variant types (sum types with variant_part).  */
+  /* Check for regular variant types (sum types with variant_part).
+     This also handles OCaml exceptions, which are represented identically
+     to variants in DWARF (both use DW_TAG_variant_part).
+     Exception types (exn) will have variant_part information and will be
+     printed with their constructor names automatically.  */
   if (ocaml_get_variant_parts (type) != nullptr)
     {
       return ocaml_print_variant_with_type (val, type, stream, recurse, options);
