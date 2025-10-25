@@ -101,6 +101,55 @@ ocaml_demangle (const char *symbol, int options)
   return gdb_demangle (symbol, options | DMGL_OXCAML);
 }
 
+/* Forward declaration for helper function.  */
+static gdb::unique_xmalloc_ptr<char> ocaml_get_qualified_type_name (struct type *type);
+
+/* Print an OCaml type with clean module-qualified names.
+
+   This function enhances the default C type printer by cleaning up
+   OCaml-specific type name suffixes (like "@ value") while preserving
+   module qualification.
+
+   For example:
+   - "String.t @ value" is displayed as "String.t"
+   - "Module.Submodule.typename @ value" as "Module.Submodule.typename"  */
+
+static void
+ocaml_print_type (struct type *type, const char *varstring,
+		  struct ui_file *stream, int show, int level,
+		  const struct type_print_options *flags)
+{
+  if (type == nullptr)
+    {
+      c_print_type (type, varstring, stream, show, level, language_ocaml,
+		    flags);
+      return;
+    }
+
+  /* Get the clean module-qualified type name.  */
+  gdb::unique_xmalloc_ptr<char> clean_name = ocaml_get_qualified_type_name (type);
+
+  /* Temporarily replace the type name with the clean version for printing.  */
+  const char *original_name = type->name ();
+
+  if (clean_name != nullptr && original_name != nullptr
+      && strcmp (clean_name.get (), original_name) != 0)
+    {
+      /* The name was cleaned up - temporarily set it.  */
+      type->set_name (clean_name.get ());
+      c_print_type (type, varstring, stream, show, level, language_ocaml,
+		    flags);
+      /* Restore the original name.  */
+      type->set_name (original_name);
+    }
+  else
+    {
+      /* No cleanup needed, use default printing.  */
+      c_print_type (type, varstring, stream, show, level, language_ocaml,
+		    flags);
+    }
+}
+
 /* Class representing the OCaml language.  */
 
 class ocaml_language : public language_defn
@@ -189,7 +238,7 @@ public:
 		   struct ui_file *stream, int show, int level,
 		   const struct type_print_options *flags) const override
   {
-    c_print_type (type, varstring, stream, show, level, la_language, flags);
+    ocaml_print_type (type, varstring, stream, show, level, flags);
   }
 
   /* See language.h.  */
@@ -735,6 +784,46 @@ ocaml_is_exception_type (struct type *type)
     return true;
 
   return false;
+}
+
+/* Get the module-qualified type name for an OCaml type.
+
+   OCaml types in DWARF often include module qualification and metadata suffixes:
+   - "String.t @ value" -> should display as "String.t"
+   - "'a list @ value" -> should display as "'a list"
+   - "Module.Submodule.typename @ value" -> "Module.Submodule.typename"
+
+   This function extracts the clean, module-qualified typename by removing
+   the "@ value" suffix and other OCaml-specific metadata.
+
+   Returns a newly allocated string containing the clean name, or nullptr
+   if the type has no name. The caller is responsible for freeing the result.  */
+
+static gdb::unique_xmalloc_ptr<char>
+ocaml_get_qualified_type_name (struct type *type)
+{
+  if (type == nullptr)
+    return nullptr;
+
+  const char *raw_name = type->name ();
+  if (raw_name == nullptr)
+    return nullptr;
+
+  /* Find the "@ value" or "@ " suffix that OCaml compilers add.  */
+  const char *at_sign = strstr (raw_name, " @ ");
+
+  if (at_sign != nullptr)
+    {
+      /* Extract the part before " @ ".  */
+      size_t len = at_sign - raw_name;
+      char *clean_name = (char *) xmalloc (len + 1);
+      strncpy (clean_name, raw_name, len);
+      clean_name[len] = '\0';
+      return gdb::unique_xmalloc_ptr<char> (clean_name);
+    }
+
+  /* No suffix found, return the name as-is.  */
+  return make_unique_xstrdup (raw_name);
 }
 
 /* Check if a variant type is unboxed.
