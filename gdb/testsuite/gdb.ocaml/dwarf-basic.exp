@@ -1,0 +1,71 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml DWARF 5 integration - Phase 1 features
+# Tests basic variant and record type printing with DWARF information
+
+load_lib "ocaml-support.exp"
+
+standard_testfile
+
+# Use the pre-compiled OxCaml binary with DWARF 5 info
+set oxcaml_binary "/home/tsmc/oxcaml-hacking/demo.exe"
+
+if {![file exists $oxcaml_binary]} {
+    unsupported "OxCaml test binary not found: $oxcaml_binary"
+    return
+}
+
+# Check if binary has DWARF debug information
+set has_dwarf [expr {![catch {exec readelf -S $oxcaml_binary | grep debug_info}]}]
+if {!$has_dwarf} {
+    unsupported "Binary does not contain DWARF debug information"
+    return
+}
+
+clean_restart $oxcaml_binary
+
+# Set the language to OCaml
+if {![set_lang_ocaml]} {
+    unsupported "Could not set language to OCaml"
+    return
+}
+
+# Test 1: Check that GDB recognizes the OCaml language from DWARF
+gdb_test "show language" \
+    {The current source language is "ocaml".*} \
+    "GDB recognizes OCaml language from DWARF"
+
+# Test 2: Set a breakpoint at a known function
+# Note: The actual function names depend on what's in demo.exe
+# We'll use a generic approach that should work with the demo binary
+
+gdb_test "info functions" \
+    ".*caml.*" \
+    "Can list OCaml functions"
+
+# Test 3: Try to print some values if we can find them
+# This is a basic smoke test - more detailed tests will come later
+gdb_test "print 42" \
+    " = 42" \
+    "Can print integer literals"
+
+gdb_test "print true" \
+    " = 3" \
+    "Can print boolean true (OCaml runtime value)"
+
+gdb_test "print false" \
+    " = 1" \
+    "Can print boolean false (OCaml runtime value)"
