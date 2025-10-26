@@ -603,7 +603,28 @@ static LONGEST __attribute__((unused))
 ocaml_read_discriminant_from_value (struct gdbarch *gdbarch, struct value *val,
 				    const variant_part &part)
 {
-  LONGEST val_raw = value_as_long (val);
+  LONGEST val_raw;
+
+  /* For struct-typed values (DWARF types), we need to read the raw contents.
+     OCaml values are always pointer-sized at runtime.  */
+  struct type *type = check_typedef (val->type ());
+  if (type->code () == TYPE_CODE_STRUCT)
+    {
+      /* Read the raw pointer value from the struct's memory.  */
+      const gdb_byte *contents = val->contents ().data ();
+      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+
+      if (ptr_size > 8)
+	return -1;
+
+      val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
+    }
+  else
+    {
+      /* For integer/pointer types, use value_as_long directly.  */
+      val_raw = value_as_long (val);
+    }
 
   /* Check if this is an immediate value.  */
   if (ocaml_is_immediate_int (val_raw))
@@ -786,6 +807,88 @@ ocaml_is_exception_type (struct type *type)
   return false;
 }
 
+/* Check if a type is an OCaml reference type.
+
+   OCaml references are mutable containers declared as:
+     type 'a ref = { mutable contents : 'a }
+
+   At runtime, references are blocks with tag 0 and size 1.
+   The single field contains the referenced value.
+
+   In DWARF, reference types have:
+   - Type name containing "ref" (e.g., "int ref @ value")
+   - Single field named "contents"
+   - Structure type with one field
+
+   Returns true if this is a reference type.  */
+
+static bool
+ocaml_is_reference_type (struct type *type)
+{
+  if (type == nullptr)
+    return false;
+
+  /* References must be struct types with exactly one field.  */
+  if (type->code () != TYPE_CODE_STRUCT)
+    return false;
+
+  if (type->num_fields () != 1)
+    return false;
+
+  /* The field must be named "contents".
+     This is sufficient to identify references, as this structure is unique to refs.  */
+  const char *field_name = type->field (0).name ();
+  if (field_name == nullptr)
+    return false;
+
+  return (strcmp (field_name, "contents") == 0);
+}
+
+/* Print an OCaml reference value using DWARF type information.
+
+   References are OCaml's mutable containers: type 'a ref = { mutable contents : 'a }
+   With DWARF info, we print them in LLDB format: [value] instead of {contents = value}
+
+   Example:
+   Before: {contents = 42}
+   After:  [42]
+
+   Returns true if successfully printed, false if no reference info available.  */
+
+static bool
+ocaml_print_reference_with_type (struct value *val, struct type *type,
+				  struct ui_file *stream, int recurse,
+				  const struct value_print_options *options)
+{
+  struct gdbarch *gdbarch = type->arch ();
+  LONGEST val_raw;
+
+  /* Read the "contents" field value.
+     For struct types, we need to read the field using GDB's value API,
+     not extract raw bytes.  */
+  if (type->code () == TYPE_CODE_STRUCT && type->num_fields () >= 1)
+    {
+      /* Read the first field ("contents") which contains the OCaml value.  */
+      struct value *field_val = value_field (val, 0);
+      val_raw = value_as_long (field_val);
+    }
+  else
+    {
+      /* For non-struct types, read the value directly.  */
+      val_raw = value_as_long (val);
+    }
+
+  /* Print in LLDB format: [value]
+     The contents can be any OCaml value - immediate (int, bool, etc.) or block (string, record, etc.)  */
+  gdb_puts ("[", stream);
+
+  /* Print the OCaml value stored in the contents field.  */
+  ocaml_print_value (gdbarch, val_raw, stream, recurse + 1, options);
+
+  gdb_puts ("]", stream);
+  return true;
+}
+
 /* Get the module-qualified type name for an OCaml type.
 
    OCaml types in DWARF often include module qualification and metadata suffixes:
@@ -824,6 +927,43 @@ ocaml_get_qualified_type_name (struct type *type)
 
   /* No suffix found, return the name as-is.  */
   return make_unique_xstrdup (raw_name);
+}
+
+/* Get the representation part of an OCaml type annotation.
+
+   OCaml DWARF types include a representation suffix like "@ value", "@ float64", "@ bits32".
+   This function extracts just the representation part after "@".
+
+   Examples:
+   - "int @ value" -> "value"
+   - "float @ float64" -> "float64"
+   - "int32 @ bits32" -> "bits32"
+
+   Returns a newly allocated string containing the representation, or "value" as default.
+   The caller is responsible for freeing the result.  */
+
+static gdb::unique_xmalloc_ptr<char>
+ocaml_get_type_representation (struct type *type)
+{
+  if (type == nullptr)
+    return make_unique_xstrdup ("value");
+
+  const char *raw_name = type->name ();
+  if (raw_name == nullptr)
+    return make_unique_xstrdup ("value");
+
+  /* Find the "@ " suffix that indicates representation.  */
+  const char *at_sign = strstr (raw_name, " @ ");
+
+  if (at_sign != nullptr)
+    {
+      /* Extract the part after "@ ".  */
+      const char *representation = at_sign + 3; /* Skip " @ " */
+      return make_unique_xstrdup (representation);
+    }
+
+  /* No representation found, default to "value".  */
+  return make_unique_xstrdup ("value");
 }
 
 /* Check if a variant type is unboxed.
@@ -920,8 +1060,20 @@ ocaml_print_unboxed_variant (struct value *val, struct type *type,
     {
       gdb_puts (" ", stream);
 
-      /* The value is stored directly - just print it according to its type.  */
-      LONGEST raw_val = value_as_long (val);
+      /* The value is stored directly - read the raw value.  */
+      LONGEST raw_val;
+      if (type->code () == TYPE_CODE_STRUCT)
+	{
+	  const gdb_byte *contents = val->contents ().data ();
+	  int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+	  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+	  raw_val = extract_unsigned_integer (contents, ptr_size, byte_order);
+	}
+      else
+	{
+	  raw_val = value_as_long (val);
+	}
+
       ocaml_print_value (gdbarch, raw_val, stream, recurse + 1, options);
     }
 
@@ -992,7 +1144,20 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
   /* If this variant has fields, print them.  */
   if (var->first_field < var->last_field)
     {
-      LONGEST val_raw = value_as_long (val);
+      LONGEST val_raw;
+
+      /* Read the raw value - handle both struct and integer/pointer types.  */
+      if (type->code () == TYPE_CODE_STRUCT)
+	{
+	  const gdb_byte *contents = val->contents ().data ();
+	  int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+	  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+	  val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
+	}
+      else
+	{
+	  val_raw = value_as_long (val);
+	}
 
       /* Check if this is a block value (not an immediate).  */
       if (ocaml_is_block (val_raw))
@@ -1076,8 +1241,20 @@ ocaml_print_unboxed_record (struct value *val, struct type *type,
   if (field_name != nullptr && field_name[0] != '\0')
     gdb_printf (stream, "%s = ", field_name);
 
-  /* The value is stored directly - just print it.  */
-  LONGEST raw_val = value_as_long (val);
+  /* The value is stored directly - read the raw value.  */
+  LONGEST raw_val;
+  if (type->code () == TYPE_CODE_STRUCT)
+    {
+      const gdb_byte *contents = val->contents ().data ();
+      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+      raw_val = extract_unsigned_integer (contents, ptr_size, byte_order);
+    }
+  else
+    {
+      raw_val = value_as_long (val);
+    }
+
   ocaml_print_value (gdbarch, raw_val, stream, recurse + 1, options);
 
   gdb_puts ("}", stream);
@@ -1101,7 +1278,20 @@ ocaml_print_record_with_type (struct value *val, struct type *type,
 			       const struct value_print_options *options)
 {
   struct gdbarch *gdbarch = type->arch ();
-  LONGEST val_raw = value_as_long (val);
+  LONGEST val_raw;
+
+  /* Read the raw value.  */
+  if (type->code () == TYPE_CODE_STRUCT)
+    {
+      const gdb_byte *contents = val->contents ().data ();
+      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+      val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
+    }
+  else
+    {
+      val_raw = value_as_long (val);
+    }
 
   /* Records must be blocks.  */
   if (!ocaml_is_block (val_raw))
@@ -1155,7 +1345,20 @@ ocaml_print_array_with_type (struct value *val, struct type *type,
 			      const struct value_print_options *options)
 {
   struct gdbarch *gdbarch = type->arch ();
-  LONGEST val_raw = value_as_long (val);
+  LONGEST val_raw;
+
+  /* Read the raw value.  */
+  if (type->code () == TYPE_CODE_STRUCT)
+    {
+      const gdb_byte *contents = val->contents ().data ();
+      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+      val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
+    }
+  else
+    {
+      val_raw = value_as_long (val);
+    }
 
   /* Arrays must be blocks.  */
   if (!ocaml_is_block (val_raw))
@@ -1209,7 +1412,7 @@ ocaml_print_array_with_type (struct value *val, struct type *type,
 
 /* Print an OCaml tuple value using DWARF type information.
 
-   Tuples are printed as (elem0, elem1, elem2, ...).
+   Tuples are printed as [elem0, elem1, elem2, ...] to match LLDB format.
    With DWARF info, we can distinguish tuples from arrays and records.
 
    Returns true if successfully printed, false if not a tuple.  */
@@ -1220,7 +1423,20 @@ ocaml_print_tuple_with_type (struct value *val, struct type *type,
 			      const struct value_print_options *options)
 {
   struct gdbarch *gdbarch = type->arch ();
-  LONGEST val_raw = value_as_long (val);
+  LONGEST val_raw;
+
+  /* Read the raw value.  */
+  if (type->code () == TYPE_CODE_STRUCT)
+    {
+      const gdb_byte *contents = val->contents ().data ();
+      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+      val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
+    }
+  else
+    {
+      val_raw = value_as_long (val);
+    }
 
   /* Tuples must be blocks.  */
   if (!ocaml_is_block (val_raw))
@@ -1231,11 +1447,11 @@ ocaml_print_tuple_with_type (struct value *val, struct type *type,
 
   if (num_fields == 0)
     {
-      gdb_puts ("()", stream);
+      gdb_puts ("[]", stream);
       return true;
     }
 
-  gdb_puts ("(", stream);
+  gdb_puts ("[", stream);
 
   for (int i = 0; i < num_fields; i++)
     {
@@ -1249,7 +1465,7 @@ ocaml_print_tuple_with_type (struct value *val, struct type *type,
 	gdb_puts ("<error>", stream);
     }
 
-  gdb_puts (")", stream);
+  gdb_puts ("]", stream);
   return true;
 }
 
@@ -1265,11 +1481,16 @@ ocaml_print_with_type (struct value *val, struct ui_file *stream, int recurse,
 		       const struct value_print_options *options)
 {
   struct type *type = val->type ();
+
   if (type == nullptr)
-    return false;
+    {
+      return false;
+    }
+
 
   /* Resolve typedefs to get the actual type.  */
   type = check_typedef (type);
+
 
   /* Check for unboxed variant types FIRST.
      Unboxed variants need special handling since the value is stored
@@ -1293,6 +1514,15 @@ ocaml_print_with_type (struct value *val, struct ui_file *stream, int recurse,
   if (type->code () == TYPE_CODE_ARRAY)
     {
       return ocaml_print_array_with_type (val, type, stream, recurse, options);
+    }
+
+  /* Check for reference types BEFORE unboxed records.
+     References are technically records with a single "contents" field,
+     but we want to print them in LLDB format: [value] instead of {contents = value}.
+     Must check before unboxed records since references also have 1 field.  */
+  if (ocaml_is_reference_type (type))
+    {
+      return ocaml_print_reference_with_type (val, type, stream, recurse, options);
     }
 
   /* Check for unboxed record types.
@@ -1319,7 +1549,7 @@ ocaml_print_with_type (struct value *val, struct ui_file *stream, int recurse,
 }
 
 /* Print an OCaml tuple (block with tag 0, no specific ADT type).
-   Tuples are printed as (field0, field1, field2, ...).  */
+   Tuples are printed as [field0, field1, field2, ...] to match LLDB format.  */
 
 static void
 ocaml_print_tuple (struct gdbarch *gdbarch, CORE_ADDR addr, ULONGEST size,
@@ -1328,11 +1558,11 @@ ocaml_print_tuple (struct gdbarch *gdbarch, CORE_ADDR addr, ULONGEST size,
 {
   if (size == 0)
     {
-      gdb_puts ("()", stream);
+      gdb_puts ("[]", stream);
       return;
     }
 
-  gdb_puts ("(", stream);
+  gdb_puts ("[", stream);
   for (ULONGEST i = 0; i < size; i++)
     {
       if (i > 0)
@@ -1344,7 +1574,7 @@ ocaml_print_tuple (struct gdbarch *gdbarch, CORE_ADDR addr, ULONGEST size,
       else
 	gdb_puts ("<error>", stream);
     }
-  gdb_puts (")", stream);
+  gdb_puts ("]", stream);
 }
 
 /* Print an OCaml array.
@@ -1402,9 +1632,9 @@ ocaml_print_array (struct gdbarch *gdbarch, CORE_ADDR addr, ULONGEST size,
   gdb_puts ("|]", stream);
 }
 
-/* Print an OCaml list.
+/* Print an OCaml list in LLDB format: (:: (head, tail)).
    Lists use tag 0 blocks with 2 fields: head and tail.
-   Empty list is represented by immediate value 1 ([]).
+   Empty list is represented as [].
 
    TODO: List Detection Heuristic Limitations
    - Current detection: tag 0, size 2, tail is [] or another block
@@ -1428,74 +1658,67 @@ ocaml_print_list (struct gdbarch *gdbarch, LONGEST list_val,
       return;
     }
 
-  /* Limit list length to avoid infinite loops and excessive output.  */
-  const int max_list_len = 20;
-  int count = 0;
-
-  gdb_puts ("[", stream);
-
-  LONGEST current = list_val;
-  bool first = true;
-
-  while (ocaml_is_block (current) && count < max_list_len)
+  /* Verify this is a cons cell (tag 0, size 2).  */
+  if (!ocaml_is_block (list_val))
     {
-      CORE_ADDR addr = (CORE_ADDR) current;
-      ULONGEST header;
-
-      if (!ocaml_read_block_header (gdbarch, addr, &header))
-	break;
-
-      int tag = ocaml_header_tag (header);
-      ULONGEST size = ocaml_header_size (header);
-
-      /* List cons cells have tag 0 and size 2 (head, tail).  */
-      if (tag != 0 || size != 2)
-	break;
-
-      if (!first)
-	gdb_puts ("; ", stream);
-      first = false;
-
-      /* Print the head element.  */
-      LONGEST head;
-      if (!ocaml_read_block_field (gdbarch, addr, 0, &head))
-	{
-	  gdb_puts ("<error>", stream);
-	  break;
-	}
-
-      ocaml_print_value (gdbarch, head, stream, recurse + 1, options);
-
-      /* Get the tail.  */
-      LONGEST tail;
-      if (!ocaml_read_block_field (gdbarch, addr, 1, &tail))
-	{
-	  gdb_puts ("; <error>", stream);
-	  break;
-	}
-
-      current = tail;
-      count++;
-
-      /* Check if we've reached the end of the list.  */
-      if (current == OCAML_VAL_EMPTY_LIST)
-	break;
+      /* Not a block, shouldn't happen for non-empty lists.  */
+      gdb_printf (stream, "<not-a-list: %s>", plongest (list_val));
+      return;
     }
 
-  if (count >= max_list_len && current != OCAML_VAL_EMPTY_LIST)
-    gdb_puts ("; ...", stream);
-  else if (current != OCAML_VAL_EMPTY_LIST && ocaml_is_block (current))
+  CORE_ADDR addr = (CORE_ADDR) list_val;
+  ULONGEST header;
+
+  if (!ocaml_read_block_header (gdbarch, addr, &header))
     {
-      /* Non-standard tail (not a proper list).  */
-      gdb_puts (" | ", stream);
-      ocaml_print_value (gdbarch, current, stream, recurse + 1, options);
+      gdb_puts ("<list-error>", stream);
+      return;
     }
 
-  gdb_puts ("]", stream);
+  int tag = ocaml_header_tag (header);
+  ULONGEST size = ocaml_header_size (header);
+
+  /* List cons cells have tag 0 and size 2 (head, tail).  */
+  if (tag != 0 || size != 2)
+    {
+      gdb_printf (stream, "<not-cons: tag=%d size=%s>", tag, pulongest (size));
+      return;
+    }
+
+  /* Print in LLDB format: (:: (head, tail)) */
+  gdb_puts ("(:: (", stream);
+
+  /* Print the head element.  */
+  LONGEST head;
+  if (!ocaml_read_block_field (gdbarch, addr, 0, &head))
+    {
+      gdb_puts ("<error>", stream);
+      return;
+    }
+
+  ocaml_print_value (gdbarch, head, stream, recurse + 1, options);
+
+  gdb_puts (", ", stream);
+
+  /* Print the tail element (recursively if it's another cons).  */
+  LONGEST tail;
+  if (!ocaml_read_block_field (gdbarch, addr, 1, &tail))
+    {
+      gdb_puts ("<error>", stream);
+      return;
+    }
+
+  ocaml_print_value (gdbarch, tail, stream, recurse + 1, options);
+
+  gdb_puts ("))", stream);
 }
 
 /* Print a single OCaml value given its raw representation.
-   This is the core recursive printing function.  */
+   This is the core recursive printing function.
+
+   Note: Type information is not available at this level, so we use heuristics.
+   For accurate type-aware printing, use ocaml_value_print_inner() which has
+   access to DWARF type information.  */
 
 static void
 ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
@@ -1516,13 +1739,32 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
       return;
     }
 
+  if (val_raw == OCAML_VAL_FALSE)
+    {
+      gdb_puts ("false", stream);
+      return;
+    }
+
+  if (val_raw == OCAML_VAL_UNIT)
+    {
+      gdb_puts ("()", stream);
+      return;
+    }
+
+  if (val_raw == OCAML_VAL_EMPTY_LIST)
+    {
+      gdb_puts ("[]", stream);
+      return;
+    }
+
   /* Check if this is an immediate integer.  */
   if (ocaml_is_immediate_int (val_raw))
     {
       LONGEST int_val = ocaml_immediate_int_val (val_raw);
 
-      /* Special case: 0 could be false, (), [], or None.
-	 Without type information, we just show the integer.  */
+      /* For characters (values 0-255 in typical usage), we could print as 'c',
+	 but without type information we can't distinguish char from int.
+	 Print as integer for now.  */
       gdb_printf (stream, "%s", plongest (int_val));
       return;
     }
@@ -1668,7 +1910,8 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
    - Block pointers: LSB = 0, points to heap-allocated data
    - Special immediate values: (), true, false, [], None
 
-   This function detects the value type and prints it appropriately.  */
+   This function detects the value type and prints it appropriately,
+   and appends type annotations in LLDB format: VALUE : TYPE @ REPRESENTATION.  */
 
 void
 ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
@@ -1677,12 +1920,41 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
   struct type *type = check_typedef (val->type ());
   struct gdbarch *gdbarch = type->arch ();
 
+
+  /* Handle C++ reference types (&) by dereferencing them.
+     OCaml function parameters are often passed as C++ references in DWARF.
+     We need to preserve the type name from the reference type, as the underlying
+     struct is often anonymous.  */
+  struct type *original_type = type;
+  if (type->code () == TYPE_CODE_REF)
+    {
+      val = coerce_ref (val);
+      type = check_typedef (val->type ());
+      /* If the dereferenced type has no name, use the original reference type's name.  */
+      if (type->name () == nullptr && original_type->name () != nullptr)
+	{
+	  /* The underlying type is anonymous, but the reference type has the name.
+	     We'll use original_type for name lookups but type for structure analysis.  */
+	}
+    }
+
   /* Try DWARF-based printing first if type information is available.
      This handles variants, records, and other structured types.  */
   if (type->code () == TYPE_CODE_STRUCT || TYPE_HAS_VARIANT_PARTS (type))
     {
       if (ocaml_print_with_type (val, stream, recurse, options))
-	return;
+	{
+	  /* Append type annotation: : TYPE @ REPRESENTATION
+	     Use original_type if the dereferenced type has no name.  */
+	  struct type *name_type = (type->name () != nullptr) ? type : original_type;
+	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (name_type);
+	  gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (name_type);
+
+	  if (type_name != nullptr)
+	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
+
+	  return;
+	}
     }
 
   /* For integer and pointer types, try heuristic-based OCaml value printing.  */
@@ -1691,6 +1963,16 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
       /* Extract the raw value and delegate to the recursive printer.  */
       LONGEST raw_val = value_as_long (val);
       ocaml_print_value (gdbarch, raw_val, stream, recurse, options);
+
+      /* Append type annotation: : TYPE @ REPRESENTATION
+	 Use original_type if available.  */
+      struct type *name_type = (type->name () != nullptr) ? type : original_type;
+      gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (name_type);
+      gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (name_type);
+
+      if (type_name != nullptr)
+	gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
+
       return;
     }
 
