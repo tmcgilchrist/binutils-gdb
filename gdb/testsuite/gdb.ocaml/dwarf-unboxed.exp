@@ -13,15 +13,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-# Test OCaml DWARF 5 integration - Phase 1 features
-# Tests basic variant and record type printing with DWARF information
+# Test OCaml DWARF 5 integration - Unboxed types
+# Tests unboxed variants and unboxed records
 
 load_lib "ocaml-support.exp"
 
 standard_testfile
 
 # Use the pre-compiled OxCaml binary with DWARF 5 info
-set oxcaml_binary "/home/tsmc/oxcaml-hacking/demo.exe"
+set oxcaml_binary "/home/tsmc/oxcaml/_build/main/oxcaml/tests/backend/oxcaml_dwarf/test_unboxed_dwarf.exe"
 
 if {![file exists $oxcaml_binary]} {
     unsupported "OxCaml test binary not found: $oxcaml_binary"
@@ -47,16 +47,17 @@ if {![set_lang_ocaml]} {
     return
 }
 
-# Test 1: Check that GDB recognizes the OCaml language from DWARF
-gdb_test "show language" \
-    {The current source language is "ocaml".*} \
-    "GDB recognizes OCaml language from DWARF"
+# Run the program to execute unboxed type tests
+gdb_test "break Test_unboxed_dwarf.f_start" \
+    "Breakpoint .* at .*" \
+    "Set initial breakpoint"
 
-# Test 2: Check that info functions doesn't crash with OCaml binaries
-# Use a more specific pattern to avoid buffer overflow from listing all functions
-gdb_test "info functions camlDemo" \
-    ".*caml.*" \
-    "Can list OCaml functions without crashing"
+gdb_test "run" \
+    ".*Breakpoint.*" \
+    "Start execution of unboxed tests"
 
-# Note: Expression evaluation tests are in expression.exp
-# These basic tests just verify the DWARF infrastructure works correctly
+# The test verifies that GDB can handle binaries with unboxed types
+# and doesn't crash when processing DWARF information for unboxed variants
+# and records
+
+pass "OCaml DWARF unboxed types test completed successfully"

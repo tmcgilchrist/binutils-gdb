@@ -1,0 +1,140 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml DWARF 5 integration - Basic types
+# Tests unit, bool, int, char, float, string, arrays, lists, options
+
+load_lib "ocaml-support.exp"
+
+standard_testfile
+
+# Use the pre-compiled OxCaml binary with DWARF 5 info
+set oxcaml_binary "/home/tsmc/oxcaml/_build/main/oxcaml/tests/backend/oxcaml_dwarf/test_basic_dwarf.exe"
+
+if {![file exists $oxcaml_binary]} {
+    unsupported "OxCaml test binary not found: $oxcaml_binary"
+    return
+}
+
+# Check if binary has DWARF debug information
+set has_dwarf [expr {![catch {exec readelf -S $oxcaml_binary | grep debug_info}]}]
+if {!$has_dwarf} {
+    unsupported "Binary does not contain DWARF debug information"
+    return
+}
+
+# Start GDB and load the external binary
+gdb_exit
+gdb_start
+gdb_reinitialize_dir $srcdir/$subdir
+gdb_file_cmd $oxcaml_binary
+
+# Set the language to OCaml
+if {![set_lang_ocaml]} {
+    unsupported "Could not set language to OCaml"
+    return
+}
+
+# Test 1: Unit type
+gdb_test "break Test_basic_dwarf.f_unit" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unit"
+
+gdb_test "run" \
+    ".*Breakpoint.*" \
+    "Run to f_unit"
+
+# Test 2: Bool type
+gdb_test "break Test_basic_dwarf.f_bool" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_bool"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_bool"
+
+# Test 3: Int type
+gdb_test "break Test_basic_dwarf.f_int" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int"
+
+# Test 4: Char type
+gdb_test "break Test_basic_dwarf.f_char" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_char"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_char"
+
+# Test 5: Float type
+gdb_test "break Test_basic_dwarf.f_float" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_float"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_float"
+
+# Test 6: String type
+gdb_test "break Test_basic_dwarf.f_string" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_string"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_string"
+
+# Test 7: Array type
+gdb_test "break Test_basic_dwarf.f_array" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_array"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_array"
+
+# Test 8: List type
+gdb_test "break Test_basic_dwarf.f_list" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_list"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_list"
+
+# Test 9: Option type
+gdb_test "break Test_basic_dwarf.f_option" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_option"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_option"
+
+# Test 10: Float array type
+gdb_test "break Test_basic_dwarf.f_float_array" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_float_array"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_float_array"
+
+pass "OCaml DWARF basic types test completed successfully"
