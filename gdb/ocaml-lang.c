@@ -1871,6 +1871,27 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
 	  gdb_puts ("<custom>", stream);
 	  return;
 	}
+      else if (tag == OCAML_TAG_LAZY)
+	{
+	  /* Lazy values (tag 246): Unevaluated lazy expression.
+	     Field 0 contains a closure that will compute the value when forced.
+	     We show <lazy> to indicate the value hasn't been evaluated yet. */
+	  gdb_puts ("<lazy>", stream);
+	  return;
+	}
+      else if (tag == OCAML_TAG_FORWARD)
+	{
+	  /* Forward tags (tag 250): Evaluated lazy value or GC forwarding pointer.
+	     When a lazy value is forced, its tag changes from 246 to 250,
+	     and field 0 points to the computed value.
+	     We follow the pointer and print the actual value. */
+	  LONGEST forwarded_val;
+	  if (ocaml_read_block_field (gdbarch, addr, 0, &forwarded_val))
+	    ocaml_print_value (gdbarch, forwarded_val, stream, recurse + 1, options);
+	  else
+	    gdb_puts ("<forward: error reading value>", stream);
+	  return;
+	}
       else if (tag < OCAML_TAG_LAZY)
 	{
 	  /* TODO: Variant Constructor and Record Printing
