@@ -1837,23 +1837,18 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
 	}
       else if (tag == OCAML_TAG_CLOSURE)
 	{
-	  /* TODO: Enhanced Closure Printing
-	     - Could show the function's code pointer and captured environment
-	     - Future work: Print function name if available via symbol table
-	     - Could show captured variables if DWARF info available
-	     - Example: <closure: foo(x=42, y=3.14)> */
-	  gdb_puts ("<closure>", stream);
+	  /* Closures: Functions with captured environment.
+	     Display as <closure>@ADDRESS to match LLDB format.
+	     Future enhancement: Could show function name and captured variables if DWARF info available. */
+	  gdb_printf (stream, "<closure>@0x%s", phex_nz (addr, sizeof (addr)));
 	  return;
 	}
       else if (tag == OCAML_TAG_OBJECT)
 	{
-	  /* TODO: Object Field Printing
-	     - Objects store their class information and fields
-	     - Field 0: class structure pointer
-	     - Fields 1+: instance variables
-	     - Future work: Parse class structure to get field names and types
-	     - Could print as {field1=value1; field2=value2; ...} */
-	  gdb_puts ("<object>", stream);
+	  /* Objects: OOP instances with methods and fields.
+	     Display as <object>@ADDRESS to match LLDB format.
+	     Future enhancement: Could parse class structure and print fields. */
+	  gdb_printf (stream, "<object>@0x%s", phex_nz (addr, sizeof (addr)));
 	  return;
 	}
       else if (tag == OCAML_TAG_CUSTOM)
