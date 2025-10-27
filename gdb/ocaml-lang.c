@@ -966,6 +966,34 @@ ocaml_get_type_representation (struct type *type)
   return make_unique_xstrdup ("value");
 }
 
+/* Check if a representation string indicates an unboxed type.
+
+   Unboxed types in OCaml use special representations that store values directly
+   rather than using the standard boxed value representation:
+   - float64: unboxed 64-bit float (float#)
+   - float32: unboxed 32-bit float (float32#)
+   - bits32: unboxed 32-bit integer (int32#)
+   - bits64: unboxed 64-bit integer (int64#)
+   - word: unboxed native integer (nativeint#)
+   - bits8, bits16: unboxed 8/16-bit integers
+
+   Unboxed values are displayed with a # prefix (e.g., #4.1, #42l).  */
+
+static bool
+ocaml_is_unboxed_representation (const char *representation)
+{
+  if (representation == nullptr)
+    return false;
+
+  return (strcmp (representation, "float64") == 0 ||
+	  strcmp (representation, "float32") == 0 ||
+	  strcmp (representation, "bits32") == 0 ||
+	  strcmp (representation, "bits64") == 0 ||
+	  strcmp (representation, "word") == 0 ||
+	  strcmp (representation, "bits8") == 0 ||
+	  strcmp (representation, "bits16") == 0);
+}
+
 /* Check if a variant type is unboxed.
 
    Unboxed variants are single-constructor variants where the payload is stored
@@ -1973,23 +2001,104 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 	}
     }
 
-  /* For integer and pointer types, try heuristic-based OCaml value printing.  */
+  /* For integer and pointer types, check for unboxed representation first.  */
   if (type->code () == TYPE_CODE_INT || type->code () == TYPE_CODE_PTR)
     {
-      /* Extract the raw value and delegate to the recursive printer.  */
+      /* Use val->type() before check_typedef to get the typedef with annotation.  */
+      struct type *typedef_type = val->type ();
+      gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (typedef_type);
+
+      /* Check if this is an unboxed integer type.  */
+      if (type->code () == TYPE_CODE_INT && ocaml_is_unboxed_representation (representation.get ()))
+	{
+	  /* Print unboxed integer with # prefix.
+	     Format: #42l for int32, #42L for int64, #42n for nativeint.  */
+	  LONGEST int_val = value_as_long (val);
+
+	  /* Determine suffix based on representation type.  */
+	  const char *suffix = "";
+	  if (strcmp (representation.get (), "bits32") == 0)
+	    suffix = "l";
+	  else if (strcmp (representation.get (), "bits64") == 0)
+	    suffix = "L";
+	  else if (strcmp (representation.get (), "word") == 0)
+	    suffix = "n";
+
+	  /* Print with # prefix and suffix.  */
+	  if (int_val < 0)
+	    gdb_printf (stream, "-#%s%s", pulongest (-int_val), suffix);
+	  else
+	    gdb_printf (stream, "#%s%s", pulongest (int_val), suffix);
+
+	  /* Append type annotation.  */
+	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (typedef_type);
+	  if (type_name != nullptr)
+	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
+
+	  return;
+	}
+
+      /* Boxed OCaml value: extract and delegate to heuristic printer.  */
       LONGEST raw_val = value_as_long (val);
       ocaml_print_value (gdbarch, raw_val, stream, recurse, options);
 
-      /* Append type annotation: : TYPE @ REPRESENTATION
-	 Use original_type if available.  */
+      /* Append type annotation.  */
       struct type *name_type = (type->name () != nullptr) ? type : original_type;
       gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (name_type);
-      gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (name_type);
 
       if (type_name != nullptr)
 	gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
 
       return;
+    }
+
+  /* Handle unboxed floats with # prefix.  */
+  if (type->code () == TYPE_CODE_FLT)
+    {
+      /* Use val->type() before check_typedef to get the typedef with annotation.  */
+      struct type *typedef_type = val->type ();
+      gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (typedef_type);
+
+      if (ocaml_is_unboxed_representation (representation.get ()))
+	{
+	  /* Print unboxed float with # prefix.
+	     Format: #4.1 for positive, -#3.14 for negative.  */
+
+	  /* Get the float value using C printing, then prepend #.  */
+	  string_file tmp_stream;
+	  c_value_print_inner (val, &tmp_stream, recurse, options);
+	  std::string float_str = tmp_stream.string ();
+
+	  /* Handle negative sign placement: move '-' before '#'.  */
+	  if (!float_str.empty () && float_str[0] == '-')
+	    {
+	      /* Negative: print as -#value.  */
+	      gdb_printf (stream, "-%s#%s",  "", float_str.c_str () + 1);
+	    }
+	  else
+	    {
+	      /* Positive: print as #value.  */
+	      gdb_printf (stream, "#%s", float_str.c_str ());
+	    }
+
+	  /* Append type annotation.  */
+	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (typedef_type);
+	  if (type_name != nullptr)
+	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
+
+	  return;
+	}
+      else
+	{
+	  /* Boxed float or float without representation info - print normally with type annotation.  */
+	  c_value_print_inner (val, stream, recurse, options);
+
+	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (typedef_type);
+	  if (type_name != nullptr)
+	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
+
+	  return;
+	}
     }
 
   /* For other types (arrays, etc.), delegate to C printing.  */
