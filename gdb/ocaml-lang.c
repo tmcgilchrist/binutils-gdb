@@ -1982,6 +1982,160 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 	}
     }
 
+  /* Handle exceptions with custom formatting before DWARF-based printing.
+
+     KNOWN LIMITATION: Exception formatter is partially implemented.
+
+     Target format: { exn = { name = "Failure"; id = -3 }; raw = [...] } : exn @ value
+     Current output: { exn = <object>@0x30; raw = [...] } : exn @ value
+
+     Issue: OxCaml encodes exception information differently than expected.
+     The exn field (after dereferencing) contains small integer values like
+     0x30 (48 decimal), which appear to be exception IDs in a global exception
+     table rather than heap-allocated structures with name/id fields.
+
+     The implementation successfully:
+     - Detects exception types
+     - Dereferences DWARF references (including unnamed fields)
+     - Follows the reference to get the ocaml_value integer
+
+     But fails to read fields because:
+     - ocaml_read_block_field() expects a valid heap address
+     - Exception IDs are small integers (not heap pointers)
+     - Need to lookup exception info from runtime's global exception table
+
+     TODO: Investigate OxCaml's exception encoding and implement proper
+     exception ID → (name, id) lookup mechanism.  */
+  struct type *typedef_type = val->type ();
+  gdb::unique_xmalloc_ptr<char> type_name_for_exn = ocaml_get_qualified_type_name (typedef_type);
+
+  if (type->code () == TYPE_CODE_STRUCT && type_name_for_exn != nullptr &&
+      (strcmp (type_name_for_exn.get (), "exn") == 0 ||
+       strncmp (type_name_for_exn.get (), "exn ", 4) == 0))
+    {
+      /* Exception format: { exn = { name = "..."; id = N }; raw = [...] } : exn @ value
+	 The exn field is a reference to a struct with name and id fields.
+	 The raw field contains the exception argument(s).  */
+
+      gdb_printf (stream, "{ exn = ");
+
+      /* Try to access and print the exn field.  */
+      if (type->num_fields () >= 1)
+	{
+	  struct value *exn_field_val = value_field (val, 0);
+	  struct type *exn_field_type = check_typedef (exn_field_val->type ());
+
+	  /* Dereference if it's a reference type to get the ocaml_value.  */
+	  if (exn_field_type->code () == TYPE_CODE_REF)
+	    {
+	      exn_field_val = coerce_ref (exn_field_val);
+	      exn_field_type = check_typedef (exn_field_val->type ());
+	    }
+
+	  /* The dereferenced value can be either a struct (with DWARF info) or
+	     an ocaml_value integer that needs manual following.  */
+	  if (exn_field_type->code () == TYPE_CODE_STRUCT)
+	    {
+	      /* Check if this is an OCaml reference (1 field, possibly unnamed or named "contents").  */
+	      if (exn_field_type->num_fields () == 1)
+		{
+		  const char *field_name = exn_field_type->field (0).name ();
+		  bool is_reference = (field_name == nullptr ||
+				       field_name[0] == '\0' ||
+				       strcmp (field_name, "contents") == 0);
+		  if (is_reference)
+		    {
+		      /* This is an OCaml reference - follow the field to get the
+			 actual value (may be a struct or ocaml_value integer).  */
+		      exn_field_val = value_field (exn_field_val, 0);
+		      exn_field_type = check_typedef (exn_field_val->type ());
+		    }
+		}
+
+	      /* Now check if we have the exception struct with name and id fields.  */
+	      if (exn_field_type->num_fields () >= 2)
+		{
+		  /* We have the exception struct - print name and id directly.  */
+		  gdb_printf (stream, "{ name = ");
+		  struct value *name_val = value_field (exn_field_val, 0);
+		  ocaml_value_print_inner (name_val, stream, recurse + 1, options);
+
+		  gdb_printf (stream, "; id = ");
+		  struct value *id_val = value_field (exn_field_val, 1);
+		  ocaml_value_print_inner (id_val, stream, recurse + 1, options);
+
+		  gdb_printf (stream, " }");
+		  return;  /* Successfully printed, exit exception handler.  */
+		}
+	      /* If not enough fields, fall through to check if it's an INT type.  */
+	    }
+
+	  /* Check if we have an ocaml_value integer to follow.  */
+	  if (exn_field_type->code () == TYPE_CODE_INT ||
+	      exn_field_type->code () == TYPE_CODE_PTR)
+	    {
+	      /* We have an ocaml_value integer - follow it as an OCaml block pointer.  */
+	      LONGEST exn_ptr = value_as_long (exn_field_val);
+
+	      /* Check if it's a block pointer (LSB = 0).  */
+	      if ((exn_ptr & 1) == 0)
+		{
+		  CORE_ADDR block_addr = (CORE_ADDR) exn_ptr;
+
+		  /* Read the name and id fields from the OCaml block.
+		     NOTE: This currently fails because OxCaml encodes exception
+		     information differently (possibly as exception IDs in a global
+		     table rather than heap-allocated structures). Further
+		     investigation needed.  */
+		  LONGEST name_val, id_val;
+		  if (ocaml_read_block_field (gdbarch, block_addr, 0, &name_val) &&
+		      ocaml_read_block_field (gdbarch, block_addr, 1, &id_val))
+		    {
+		      gdb_printf (stream, "{ name = ");
+		      ocaml_print_value (gdbarch, name_val, stream, recurse + 1, options);
+
+		      gdb_printf (stream, "; id = ");
+		      ocaml_print_value (gdbarch, id_val, stream, recurse + 1, options);
+
+		      gdb_printf (stream, " }");
+		    }
+		  else
+		    {
+		      /* Failed to read fields - print as object address.  */
+		      gdb_printf (stream, "<object>@0x%s", phex_nz (block_addr, sizeof (CORE_ADDR)));
+		    }
+		}
+	      else
+		{
+		  /* Not a block pointer - shouldn't happen for exceptions.  */
+		  gdb_printf (stream, "<immediate value %s>", plongest (exn_ptr));
+		}
+	    }
+	  else
+	    {
+	      /* Unexpected type - fallback to regular printing.  */
+	      ocaml_value_print_inner (exn_field_val, stream, recurse + 1, options);
+	    }
+	}
+
+      /* Print the raw field.  */
+      if (type->num_fields () >= 2)
+	{
+	  gdb_printf (stream, "; raw = ");
+	  struct value *raw_field_val = value_field (val, 1);
+	  ocaml_value_print_inner (raw_field_val, stream, recurse + 1, options);
+	}
+
+      gdb_printf (stream, " }");
+
+      /* Add type annotation.  */
+      gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (typedef_type);
+      if (representation != nullptr)
+	gdb_printf (stream, " : %s @ %s", type_name_for_exn.get (), representation.get ());
+
+      return;
+    }
+
   /* Try DWARF-based printing first if type information is available.
      This handles variants, records, and other structured types.  */
   if (type->code () == TYPE_CODE_STRUCT || TYPE_HAS_VARIANT_PARTS (type))
@@ -2107,10 +2261,10 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 
   /* Add type annotation if available.
      Use val->type() to get typedef before check_typedef resolution.  */
-  struct type *typedef_type = val->type ();
-  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (typedef_type);
-  gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (typedef_type);
+  struct type *typedef_type_for_annotation = val->type ();
+  gdb::unique_xmalloc_ptr<char> type_name_for_annotation = ocaml_get_qualified_type_name (typedef_type_for_annotation);
+  gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (typedef_type_for_annotation);
 
-  if (type_name != nullptr && representation != nullptr)
-    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
+  if (type_name_for_annotation != nullptr && representation != nullptr)
+    gdb_printf (stream, " : %s @ %s", type_name_for_annotation.get (), representation.get ());
 }
