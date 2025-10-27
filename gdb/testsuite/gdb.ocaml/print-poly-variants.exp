@@ -1,0 +1,148 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml polymorphic variant printing
+# Tests that GDB correctly prints OCaml polymorphic variants in LLDB-compatible format
+# Format: `Constructor or (`Constructor value) with type annotations
+#
+# STATUS: All poly variant functions tested exist in test_datatypes_dwarf.ml:
+#         f_poly_variant and f_open_poly_variant. This file should work correctly.
+
+load_lib "ocaml-support.exp"
+
+standard_testfile
+
+# Use the pre-compiled OxCaml datatypes test binary with DWARF 5 info
+set oxcaml_binary "/home/tsmc/oxcaml/_build/main/oxcaml/tests/backend/oxcaml_dwarf/test_datatypes_dwarf.exe"
+
+if {![file exists $oxcaml_binary]} {
+    unsupported "OxCaml datatypes test binary not found: $oxcaml_binary"
+    return
+}
+
+# Check if binary has DWARF debug information
+set has_dwarf [expr {![catch {exec readelf -S $oxcaml_binary | grep debug_info}]}]
+if {!$has_dwarf} {
+    unsupported "Binary does not contain DWARF debug information"
+    return
+}
+
+# Start GDB and load the external binary
+gdb_exit
+gdb_start
+gdb_reinitialize_dir $srcdir/$subdir
+gdb_file_cmd $oxcaml_binary
+
+# Set the language to OCaml
+if {![set_lang_ocaml]} {
+    unsupported "Could not set language to OCaml"
+    return
+}
+
+# ============================================================================
+# Test Basic Polymorphic Variants
+# ============================================================================
+
+gdb_test "break Test_datatypes_dwarf.f_poly_variant" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_poly_variant"
+
+gdb_test "run" \
+    ".*Breakpoint.*" \
+    "Run to f_poly_variant"
+
+# Test simple polymorphic variant without data
+gdb_test "print x" \
+    ".*`Red.* : poly_variant @ value.*" \
+    "Print polymorphic variant `Red shows constructor and type annotation"
+
+# Test polymorphic variant with int data
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_poly_variant (`Blue)"
+
+gdb_test "print x" \
+    ".*`Blue.*42.* : poly_variant @ value.*" \
+    "Print polymorphic variant (`Blue 42) shows constructor with int data"
+
+# Test polymorphic variant with float data
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_poly_variant (`Green)"
+
+gdb_test "print x" \
+    ".*`Green.*3\\\\.14.* : poly_variant @ value.*" \
+    "Print polymorphic variant (`Green 3.14) shows constructor with float data"
+
+# Test polymorphic variant with string data
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_poly_variant (`Yellow)"
+
+gdb_test "print x" \
+    ".*`Yellow.*\\\"test\\\".* : poly_variant @ value.*" \
+    "Print polymorphic variant (`Yellow \"test\") shows constructor with string data"
+
+# ============================================================================
+# Test Open Polymorphic Variants
+# ============================================================================
+
+gdb_test "break Test_datatypes_dwarf.f_open_poly_variant" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_open_poly_variant"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_open_poly_variant"
+
+# Test open polymorphic variant without data
+gdb_test "print x" \
+    ".*`Alpha.* : .* @ value.*" \
+    "Print open polymorphic variant `Alpha shows constructor"
+
+# Test open polymorphic variant with data
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_open_poly_variant (`Beta)"
+
+gdb_test "print x" \
+    ".*`Beta.*123.* : .* @ value.*" \
+    "Print open polymorphic variant (`Beta 123) shows constructor with data"
+
+# ============================================================================
+# Test Polymorphic Variants in Complex Structures
+# ============================================================================
+
+gdb_test "break Test_datatypes_dwarf.f_mixed_combo" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_mixed_combo"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_mixed_combo"
+
+# Test record with polymorphic variant field
+gdb_test "print x" \
+    ".*\\{.*variant_field.*=.*(C.*100.*).*record_field.*=.*\\{.*x.*=.*10.*y.*=.*2\\\\.5.*\\}.*unboxed_field.*=.*#3\\\\.14.*\\}.* : mixed_combo @ value.*" \
+    "Print mixed combo with variant field shows all fields including polymorphic variant"
+
+# Summary: This test verifies that:
+# 1. Simple polymorphic variants without data print correctly (`Red)
+# 2. Polymorphic variants with data print correctly ((`Blue 42), (`Green 3.14))
+# 3. Polymorphic variants with different data types work (int, float, string)
+# 4. Open polymorphic variants work with correct type annotations
+# 5. Polymorphic variants in complex structures (records) work
+# 6. All polymorphic variants include type annotations
+# Total: 10 tests

@@ -15,6 +15,11 @@
 
 # Test OCaml expression parsing.
 # NOTE: The tests here intentionally do not require an OCaml compiler.
+#
+# CURRENT STATUS: All tests in this file are expected to FAIL.
+# OCaml expression evaluation is not yet implemented in GDB.
+# This is a future feature that requires implementing an OCaml expression parser.
+# These tests define the expected behavior for when expression evaluation is added.
 
 load_lib "ocaml-support.exp"
 
