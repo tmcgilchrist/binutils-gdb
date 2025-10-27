@@ -2101,6 +2101,16 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 	}
     }
 
-  /* For other types (arrays, etc.), delegate to C printing.  */
+  /* For other types (arrays, enums, structs, etc.), delegate to C printing
+     and add type annotation.  */
   c_value_print_inner (val, stream, recurse, options);
+
+  /* Add type annotation if available.
+     Use val->type() to get typedef before check_typedef resolution.  */
+  struct type *typedef_type = val->type ();
+  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (typedef_type);
+  gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (typedef_type);
+
+  if (type_name != nullptr && representation != nullptr)
+    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
 }
