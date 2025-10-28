@@ -18,32 +18,17 @@
 
 load_lib "ocaml-support.exp"
 
-standard_testfile
-
-# Use the pre-compiled OxCaml binary with DWARF 5 info
+# Use custom OxCaml binary path (not the standard test suite binaries)
 set oxcaml_binary "/home/tsmc/oxcaml-hacking/demo.exe"
 
-if {![file exists $oxcaml_binary]} {
-    unsupported "OxCaml test binary not found: $oxcaml_binary"
+# Check binary exists and has DWARF, then load it
+if {![check_oxcaml_binary_exists $oxcaml_binary]} {
     return
 }
-
-# Check if binary has DWARF debug information
-set has_dwarf [expr {![catch {exec readelf -S $oxcaml_binary | grep debug_info}]}]
-if {!$has_dwarf} {
-    unsupported "Binary does not contain DWARF debug information"
+if {![check_binary_has_dwarf $oxcaml_binary]} {
     return
 }
-
-# Start GDB and load the external binary
-gdb_exit
-gdb_start
-gdb_reinitialize_dir $srcdir/$subdir
-gdb_file_cmd $oxcaml_binary
-
-# Set the language to OCaml
-if {![set_lang_ocaml]} {
-    unsupported "Could not set language to OCaml"
+if {[prepare_for_oxcaml_testing $oxcaml_binary] != 0} {
     return
 }
 

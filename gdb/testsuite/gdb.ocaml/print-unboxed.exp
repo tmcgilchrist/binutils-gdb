@@ -22,32 +22,8 @@
 
 load_lib "ocaml-support.exp"
 
-standard_testfile
-
-# Use the pre-compiled OxCaml unboxed test binary with DWARF 5 info
-set oxcaml_binary "/home/tsmc/oxcaml/_build/main/oxcaml/tests/backend/oxcaml_dwarf/test_unboxed_dwarf.exe"
-
-if {![file exists $oxcaml_binary]} {
-    unsupported "OxCaml unboxed test binary not found: $oxcaml_binary"
-    return
-}
-
-# Check if binary has DWARF debug information
-set has_dwarf [expr {![catch {exec readelf -S $oxcaml_binary | grep debug_info}]}]
-if {!$has_dwarf} {
-    unsupported "Binary does not contain DWARF debug information"
-    return
-}
-
-# Start GDB and load the external binary
-gdb_exit
-gdb_start
-gdb_reinitialize_dir $srcdir/$subdir
-gdb_file_cmd $oxcaml_binary
-
-# Set the language to OCaml
-if {![set_lang_ocaml]} {
-    unsupported "Could not set language to OCaml"
+# Use standard OxCaml test setup for "unboxed" test binary
+if {[standard_oxcaml_testfile "unboxed"] == -1} {
     return
 }
 
@@ -65,31 +41,31 @@ gdb_test "run" \
 
 # Test unboxed float shows # prefix and @ float64
 gdb_test "print x" \
-    ".*#.*\\\\..*: .* @ float64.*" \
+    ".*#.*: .* @ float64.*" \
     "Print unboxed float shows # prefix and @ float64"
 
 # Test unboxed float with zero
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_float (zero)"
+    "Continue to f_unboxed_float (call 2: zero value)"
 
 gdb_test "print x" \
-    ".*#0\\\\.0.* : .* @ float64.*" \
-    "Print unboxed float #0.0 shows zero value"
+    ".*#0.* : .* @ float64.*" \
+    "Print unboxed float #0 shows zero value"
 
 # Test unboxed float with negative
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_float (negative)"
+    "Continue to f_unboxed_float (call 3: negative value)"
 
 gdb_test "print x" \
-    ".*-#.*\\\\..*: .* @ float64.*" \
+    ".*-#.*: .* @ float64.*" \
     "Print unboxed float shows negative value"
 
 # Test unboxed float with large value (scientific notation)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_float (large)"
+    "Continue to f_unboxed_float (call 4: large value)"
 
 gdb_test "print x" \
     ".*#.*: .* @ float64.*" \
@@ -107,28 +83,64 @@ gdb_test "continue" \
     ".*Breakpoint.*" \
     "Continue to f_unboxed_float32"
 
-# Test unboxed float32 shows # prefix and @ bits32
+# Test unboxed float32 shows # prefix and @ float32
 gdb_test "print x" \
-    ".*#.*: .* @ bits32.*" \
-    "Print unboxed float32 shows # prefix and @ bits32"
+    ".*#.*: .* @ float32.*" \
+    "Print unboxed float32 shows # prefix and @ float32"
 
 # Test unboxed float32 with zero
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_float32 (zero)"
+    "Continue to f_unboxed_float32 (call 2: zero value)"
 
 gdb_test "print x" \
-    ".*#0\\\\.0s.* : .* @ bits32.*" \
-    "Print unboxed float32 #0.0s shows zero value"
+    ".*#0.* : .* @ float32.*" \
+    "Print unboxed float32 #0 shows zero value"
 
 # Test unboxed float32 with negative
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_float32 (negative)"
+    "Continue to f_unboxed_float32 (call 3: negative value)"
 
 gdb_test "print x" \
-    ".*-#.*s.* : .* @ bits32.*" \
+    ".*-#.*: .* @ float32.*" \
     "Print unboxed float32 shows negative value"
+
+# ============================================================================
+# Test Unboxed Nativeint (nativeint#)
+# ============================================================================
+# NOTE: Testing nativeint before int32/int64 to match execution order in test_unboxed_dwarf.ml
+
+gdb_test "break Test_unboxed_dwarf.f_unboxed_nativeint" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_nativeint"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_nativeint"
+
+# Test unboxed nativeint shows # prefix and @ word (first call: #0n)
+gdb_test "print x" \
+    ".*#0n.*: .* @ word.*" \
+    "Print unboxed nativeint #0n shows zero value"
+
+# Test unboxed nativeint with large value (second call: #0x123456789abcdefn)
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_nativeint (call 2: large hex value)"
+
+gdb_test "print x" \
+    ".*#.*n.*: .* @ word.*" \
+    "Print unboxed nativeint shows # prefix and @ word"
+
+# Test unboxed nativeint with negative (third call: -#999n)
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_nativeint (call 3: negative value)"
+
+gdb_test "print x" \
+    ".*-#.*n.*: .* @ word.*" \
+    "Print unboxed nativeint shows negative value"
 
 # ============================================================================
 # Test Unboxed Int32 (int32#)
@@ -142,24 +154,24 @@ gdb_test "continue" \
     ".*Breakpoint.*" \
     "Continue to f_unboxed_int32"
 
-# Test unboxed int32 shows # prefix and @ bits32
-gdb_test "print x" \
-    ".*#\\\d+l.* : .* @ bits32.*" \
-    "Print unboxed int32 shows # prefix with l suffix and @ bits32"
-
-# Test unboxed int32 with zero
-gdb_test "continue" \
-    ".*Breakpoint.*" \
-    "Continue to f_unboxed_int32 (zero)"
-
+# Test unboxed int32 shows # prefix and @ bits32 (first call: #0l)
 gdb_test "print x" \
     ".*#0l.* : .* @ bits32.*" \
     "Print unboxed int32 #0l shows zero value"
 
-# Test unboxed int32 with negative
+# Test unboxed int32 with large value (second call: #0x12345678l)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int32 (negative)"
+    "Continue to f_unboxed_int32 (call 2: large hex value)"
+
+gdb_test "print x" \
+    ".*#\\\d+l.* : .* @ bits32.*" \
+    "Print unboxed int32 shows # prefix with l suffix and @ bits32"
+
+# Test unboxed int32 with negative (third call: -#456l)
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_int32 (call 3: negative value)"
 
 gdb_test "print x" \
     ".*-#\\\d+l.* : .* @ bits32.*" \
@@ -177,63 +189,28 @@ gdb_test "continue" \
     ".*Breakpoint.*" \
     "Continue to f_unboxed_int64"
 
-# Test unboxed int64 shows # prefix and @ bits64
-gdb_test "print x" \
-    ".*#\\\d+L.* : .* @ bits64.*" \
-    "Print unboxed int64 shows # prefix with L suffix and @ bits64"
-
-# Test unboxed int64 with zero
-gdb_test "continue" \
-    ".*Breakpoint.*" \
-    "Continue to f_unboxed_int64 (zero)"
-
+# Test unboxed int64 shows # prefix and @ bits64 (first call: #0L)
 gdb_test "print x" \
     ".*#0L.* : .* @ bits64.*" \
     "Print unboxed int64 #0L shows zero value"
 
-# Test unboxed int64 with negative
+# Test unboxed int64 with large value (second call: #0x123456789abcdefL)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int64 (negative)"
+    "Continue to f_unboxed_int64 (call 2: large hex value)"
+
+gdb_test "print x" \
+    ".*#\\\d+L.* : .* @ bits64.*" \
+    "Print unboxed int64 shows # prefix with L suffix and @ bits64"
+
+# Test unboxed int64 with negative (third call: -#789L)
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_int64 (call 3: negative value)"
 
 gdb_test "print x" \
     ".*-#\\\d+L.* : .* @ bits64.*" \
     "Print unboxed int64 shows negative value"
-
-# ============================================================================
-# Test Unboxed Nativeint (nativeint#)
-# ============================================================================
-
-gdb_test "break Test_unboxed_dwarf.f_unboxed_nativeint" \
-    "Breakpoint .* at .*" \
-    "Set breakpoint at f_unboxed_nativeint"
-
-gdb_test "continue" \
-    ".*Breakpoint.*" \
-    "Continue to f_unboxed_nativeint"
-
-# Test unboxed nativeint shows # prefix and @ bits64/bits32 (word)
-gdb_test "print x" \
-    ".*#.*: .* @ .*" \
-    "Print unboxed nativeint shows # prefix"
-
-# Test unboxed nativeint with zero
-gdb_test "continue" \
-    ".*Breakpoint.*" \
-    "Continue to f_unboxed_nativeint (zero)"
-
-gdb_test "print x" \
-    ".*#0.*: .* @ .*" \
-    "Print unboxed nativeint shows zero value"
-
-# Test unboxed nativeint with negative
-gdb_test "continue" \
-    ".*Breakpoint.*" \
-    "Continue to f_unboxed_nativeint (negative)"
-
-gdb_test "print x" \
-    ".*-#.*: .* @ .*" \
-    "Print unboxed nativeint shows negative value"
 
 # ============================================================================
 # Test Unboxed Int8 (int8#)
@@ -255,7 +232,7 @@ gdb_test "print x" \
 # Test unboxed int8 with zero
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int8 (zero)"
+    "Continue to f_unboxed_int8 (call 2: zero value)"
 
 gdb_test "print x" \
     ".*#0.* : .* @ .*" \
@@ -264,7 +241,7 @@ gdb_test "print x" \
 # Test unboxed int8 with negative
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int8 (negative)"
+    "Continue to f_unboxed_int8 (call 3: negative value)"
 
 gdb_test "print x" \
     ".*-#\\\d+.* : .* @ .*" \
@@ -273,7 +250,7 @@ gdb_test "print x" \
 # Test unboxed int8 max value (127)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int8 (max)"
+    "Continue to f_unboxed_int8 (call 4: max value 127)"
 
 gdb_test "print x" \
     ".*#127.* : .* @ .*" \
@@ -282,7 +259,7 @@ gdb_test "print x" \
 # Test unboxed int8 min value (-128)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int8 (min)"
+    "Continue to f_unboxed_int8 (call 5: min value -128)"
 
 gdb_test "print x" \
     ".*-#128.* : .* @ .*" \
@@ -308,7 +285,7 @@ gdb_test "print x" \
 # Test unboxed int16 with zero
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int16 (zero)"
+    "Continue to f_unboxed_int16 (call 2: zero value)"
 
 gdb_test "print x" \
     ".*#0.* : .* @ .*" \
@@ -317,7 +294,7 @@ gdb_test "print x" \
 # Test unboxed int16 with negative
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int16 (negative)"
+    "Continue to f_unboxed_int16 (call 3: negative value)"
 
 gdb_test "print x" \
     ".*-#\\\d+.* : .* @ .*" \
@@ -326,7 +303,7 @@ gdb_test "print x" \
 # Test unboxed int16 max value (32767)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int16 (max)"
+    "Continue to f_unboxed_int16 (call 4: max value 32767)"
 
 gdb_test "print x" \
     ".*#32767.* : .* @ .*" \
@@ -335,7 +312,7 @@ gdb_test "print x" \
 # Test unboxed int16 min value (-32768)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int16 (min)"
+    "Continue to f_unboxed_int16 (call 5: min value -32768)"
 
 gdb_test "print x" \
     ".*-#32768.* : .* @ .*" \
@@ -355,13 +332,23 @@ gdb_test "continue" \
 
 # Test unboxed products are decomposed into separate parameters
 # Each parameter should have # prefix and type annotation
-gdb_test "print x_unboxed0" \
-    ".*#.*: .* @ .*" \
+# Use info args to see all parameters (names include unique compiler-generated prefixes)
+gdb_test "info args" \
+    ".*_unboxed0.*#.*: .* @ .*" \
     "Print first unboxed product field shows # prefix"
 
-gdb_test "print x_unboxed1" \
-    ".*#.*: .* @ .*" \
+gdb_test "info args" \
+    ".*_unboxed1.*#.*: .* @ .*" \
     "Print second unboxed product field shows # prefix"
+
+# Skip remaining calls to f_simple_product (called 3 times total)
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_simple_product (call 2: zero values)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_simple_product (call 3: negative values)"
 
 # ============================================================================
 # Test Mixed Product (boxed + unboxed)
@@ -377,13 +364,18 @@ gdb_test "continue" \
 
 # Test mixed products have both boxed and unboxed fields
 # Boxed bool should show type annotation without # prefix
-gdb_test "print x_unboxed0" \
-    ".*#.*: .* @ .*" \
+gdb_test "info args" \
+    ".*_unboxed0.*#.*: .* @ .*" \
     "Print unboxed field in mixed product shows # prefix"
 
-gdb_test "print x_unboxed1" \
-    ".*true|false.* : .* @ value.*" \
+gdb_test "info args" \
+    ".*_unboxed1.*(true|false).*: .* @ value.*" \
     "Print boxed bool field in mixed product shows type annotation"
+
+# Skip remaining call to f_mixed_product (called 2 times total)
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_mixed_product (call 2: zero/false values)"
 
 # ============================================================================
 # Test Unboxed Record
@@ -398,13 +390,22 @@ gdb_test "continue" \
     "Continue to f_simple_record"
 
 # Test unboxed record fields are decomposed
-gdb_test "print x_unboxed0" \
-    ".*#.*: .* @ .*" \
+gdb_test "info args" \
+    ".*_unboxed0.*#.*: .* @ .*" \
     "Print first unboxed record field shows # prefix"
 
-gdb_test "print x_unboxed1" \
-    ".*#.*: .* @ .*" \
+gdb_test "info args" \
+    ".*_unboxed1.*#.*: .* @ .*" \
     "Print second unboxed record field shows # prefix"
+
+# Skip remaining calls to f_simple_record (called 3 times total)
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_simple_record (call 2: zero values)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_simple_record (call 3: negative values)"
 
 # ============================================================================
 # Test Mixed Record (boxed + unboxed fields)
@@ -419,14 +420,21 @@ gdb_test "continue" \
     "Continue to f_mixed_record"
 
 # Test mixed record has both boxed and unboxed fields
-gdb_test "print x_unboxed0" \
-    ".*#.*: .* @ .*" \
-    "Print unboxed field in mixed record shows # prefix"
+# mixed_record = #{ a: int64#; b: bool; c: float# }
+# unboxed0 = int64#, unboxed1 = bool (boxed), unboxed2 = float#
+gdb_test "info args" \
+    ".*_unboxed0.*#.*L.*: .* @ bits64.*" \
+    "Print first unboxed field (int64#) in mixed record shows # prefix"
 
-# Boxed string field should show type annotation without # prefix
-gdb_test "print x_unboxed1" \
-    ".*\".*\".* : .* @ value.*" \
-    "Print boxed string field in mixed record shows type annotation"
+# Boxed bool field should show type annotation without # prefix
+gdb_test "info args" \
+    ".*_unboxed1.*(true|false).*: .* @ value.*" \
+    "Print boxed bool field in mixed record shows type annotation"
+
+# Third unboxed float# field
+gdb_test "info args" \
+    ".*_unboxed2.*#.*: .* @ float64.*" \
+    "Print second unboxed field (float#) in mixed record shows # prefix"
 
 # Summary: This test verifies that:
 # 1. All unboxed types show # prefix

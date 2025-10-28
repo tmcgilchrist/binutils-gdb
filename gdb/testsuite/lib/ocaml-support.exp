@@ -36,3 +36,138 @@ proc ocaml_runto_main { } {
     # the runtime and linking. For now, use the standard entry.
     return [runto main]
 }
+
+# Get the standard path for an OxCaml test binary.
+# TEST_NAME should be the base name (e.g., "basic", "datatypes", "unboxed").
+# Returns the full path to the test binary.
+#
+# The binary location can be customized via the OXCAML_TEST_DIR environment variable.
+# If OXCAML_TEST_DIR is set, binaries are expected at:
+#   $OXCAML_TEST_DIR/test_${test_name}_dwarf.exe
+# Otherwise, the default location is used:
+#   /home/tsmc/oxcaml/_build/main/oxcaml/tests/backend/oxcaml_dwarf/test_${test_name}_dwarf.exe
+#
+# Example usage:
+#   export OXCAML_TEST_DIR=/path/to/oxcaml/binaries
+#   make check RUNTESTFLAGS="gdb.ocaml/*.exp"
+
+proc get_oxcaml_binary_path { test_name } {
+    global env
+
+    # Check if OXCAML_TEST_DIR environment variable is set
+    if {[info exists env(OXCAML_TEST_DIR)]} {
+	set test_dir $env(OXCAML_TEST_DIR)
+	return "${test_dir}/test_${test_name}_dwarf.exe"
+    }
+
+    # Use default location
+    return "/home/tsmc/oxcaml/_build/main/oxcaml/tests/backend/oxcaml_dwarf/test_${test_name}_dwarf.exe"
+}
+
+# Check if an OxCaml binary exists.
+# Returns 1 if exists, 0 if not (and calls unsupported).
+
+proc check_oxcaml_binary_exists { binary_path } {
+    if {![file exists $binary_path]} {
+	unsupported "OxCaml test binary not found: $binary_path"
+	return 0
+    }
+    return 1
+}
+
+# Check if a binary contains DWARF debug information.
+# Returns 1 if has DWARF, 0 if not (and calls unsupported).
+
+proc check_binary_has_dwarf { binary_path } {
+    set has_dwarf [expr {![catch {exec readelf -S $binary_path | grep debug_info}]}]
+    if {!$has_dwarf} {
+	unsupported "Binary does not contain DWARF debug information: $binary_path"
+	return 0
+    }
+    return 1
+}
+
+# Prepare GDB for testing with an OxCaml binary.
+# This combines gdb_exit, gdb_start, loading the binary, and setting OCaml language.
+# BINARY_PATH is the full path to the OxCaml test binary.
+# Returns 0 on success, -1 on failure.
+
+proc prepare_for_oxcaml_testing { binary_path } {
+    global srcdir subdir
+
+    # Start fresh GDB session
+    gdb_exit
+    gdb_start
+    gdb_reinitialize_dir $srcdir/$subdir
+
+    # Load the binary
+    if {[gdb_file_cmd $binary_path] != 0} {
+	unsupported "Could not load binary: $binary_path"
+	return -1
+    }
+
+    # Set language to OCaml
+    if {![set_lang_ocaml]} {
+	unsupported "Could not set language to OCaml"
+	return -1
+    }
+
+    return 0
+}
+
+# Standard setup for OxCaml test files.
+# TEST_NAME is the base name of the test (e.g., "basic", "datatypes").
+# This function:
+#   1. Gets the standard binary path
+#   2. Checks if binary exists
+#   3. Checks if binary has DWARF info
+#   4. Loads binary into GDB and sets OCaml language
+# Returns 0 on success, -1 on failure.
+# Sets global $binfile variable to the binary path.
+
+proc standard_oxcaml_testfile { test_name } {
+    global binfile
+
+    # Get standard binary path
+    set binfile [get_oxcaml_binary_path $test_name]
+
+    # Check binary exists
+    if {![check_oxcaml_binary_exists $binfile]} {
+	return -1
+    }
+
+    # Check for DWARF debug info
+    if {![check_binary_has_dwarf $binfile]} {
+	return -1
+    }
+
+    # Prepare GDB for testing
+    if {[prepare_for_oxcaml_testing $binfile] != 0} {
+	return -1
+    }
+
+    return 0
+}
+
+# Load a specific OxCaml binary for testing.
+# Useful for tests that need to switch between multiple binaries.
+# BINARY_PATH is the full path to the binary.
+# Returns 0 on success, -1 on failure.
+
+proc load_oxcaml_binary { binary_path } {
+    # Check binary exists and has DWARF
+    if {![check_oxcaml_binary_exists $binary_path]} {
+	return -1
+    }
+    if {![check_binary_has_dwarf $binary_path]} {
+	return -1
+    }
+
+    # Load into current GDB session (don't restart GDB)
+    if {[gdb_file_cmd $binary_path] != 0} {
+	unsupported "Could not load binary: $binary_path"
+	return -1
+    }
+
+    return 0
+}

@@ -1237,6 +1237,11 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
   return true;
 }
 
+/* Forward declaration - defined later.  */
+static bool
+ocaml_print_with_type (struct value *val, struct ui_file *stream, int recurse,
+		       const struct value_print_options *options);
+
 /* Print an unboxed OCaml record value using DWARF type information.
 
    Unboxed records are single-field records stored without wrapping:
@@ -1254,8 +1259,6 @@ ocaml_print_unboxed_record (struct value *val, struct type *type,
 			     struct ui_file *stream, int recurse,
 			     const struct value_print_options *options)
 {
-  struct gdbarch *gdbarch = type->arch ();
-
   /* Unboxed records must have exactly one field.  */
   if (type->num_fields () != 1)
     return false;
@@ -1269,21 +1272,33 @@ ocaml_print_unboxed_record (struct value *val, struct type *type,
   if (field_name != nullptr && field_name[0] != '\0')
     gdb_printf (stream, "%s = ", field_name);
 
-  /* The value is stored directly - read the raw value.  */
-  LONGEST raw_val;
-  if (type->code () == TYPE_CODE_STRUCT)
+  /* Get the field value with DWARF type information preserved.
+     This is critical for nested records/structs to print correctly.  */
+  struct value *field_val = value_field (val, 0);
+  struct type *field_type = check_typedef (field_val->type ());
+
+  /* If the field is a reference, dereference it.  */
+  if (field_type->code () == TYPE_CODE_REF)
     {
-      const gdb_byte *contents = val->contents ().data ();
-      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
-      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-      raw_val = extract_unsigned_integer (contents, ptr_size, byte_order);
+      field_val = coerce_ref (field_val);
+      field_type = check_typedef (field_val->type ());
+    }
+
+  /* If it's a struct with DWARF type info, try DWARF-based printing first.
+     This preserves proper OCaml semantics (semicolons, nested records, etc.).  */
+  if (field_type->code () == TYPE_CODE_STRUCT)
+    {
+      if (!ocaml_print_with_type (field_val, stream, recurse + 1, options))
+	{
+	  /* DWARF printing failed - fall back to common_val_print.  */
+	  common_val_print (field_val, stream, recurse + 1, options, current_language);
+	}
     }
   else
     {
-      raw_val = value_as_long (val);
+      /* For non-struct fields, use common_val_print.  */
+      common_val_print (field_val, stream, recurse + 1, options, current_language);
     }
-
-  ocaml_print_value (gdbarch, raw_val, stream, recurse + 1, options);
 
   gdb_puts ("}", stream);
   return true;
@@ -1305,29 +1320,7 @@ ocaml_print_record_with_type (struct value *val, struct type *type,
 			       struct ui_file *stream, int recurse,
 			       const struct value_print_options *options)
 {
-  struct gdbarch *gdbarch = type->arch ();
-  LONGEST val_raw;
-
-  /* Read the raw value.  */
-  if (type->code () == TYPE_CODE_STRUCT)
-    {
-      const gdb_byte *contents = val->contents ().data ();
-      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
-      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-      val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
-    }
-  else
-    {
-      val_raw = value_as_long (val);
-    }
-
-  /* Records must be blocks.  */
-  if (!ocaml_is_block (val_raw))
-    return false;
-
-  CORE_ADDR addr = (CORE_ADDR) val_raw;
-
-  /* Print record fields with their names.  */
+  /* The value is already a struct with fields - print them directly.  */
   gdb_puts ("{", stream);
 
   int num_fields = type->num_fields ();
@@ -1343,17 +1336,75 @@ ocaml_print_record_with_type (struct value *val, struct type *type,
 	continue;
 
       if (!first)
-	gdb_puts ("; ", stream);
+	{
+	  gdb_puts ("; ", stream);
+	}
       first = false;
 
       gdb_printf (stream, "%s = ", field_name);
 
-      /* Read field value from the block.  */
-      LONGEST field_val;
-      if (ocaml_read_block_field (gdbarch, addr, i, &field_val))
-	ocaml_print_value (gdbarch, field_val, stream, recurse + 1, options);
-      else
-	gdb_puts ("<error>", stream);
+      /* Get field value with DWARF type information preserved.  */
+      struct value *field_val = value_field (val, i);
+      struct type *field_type = check_typedef (field_val->type ());
+
+      /* If the field is a reference, dereference it.  */
+      if (field_type->code () == TYPE_CODE_REF)
+	{
+	  field_val = coerce_ref (field_val);
+	  field_type = check_typedef (field_val->type ());
+	}
+
+      /* Special handling for unboxed tuple fields (e.g., f.#0, f.#1).
+         These are flattened unboxed tuple elements that lost their type annotations in DWARF.
+         Heuristic: if field name matches *.#\d+ and type is pointer without typedef,
+         use the field byte size to determine the suffix (like LLDB does).  */
+      bool is_unboxed_tuple_field = false;
+
+      /* Check if field name matches pattern: *.#\d+ (e.g., f.#0, f.#1).  */
+      const char *dot_hash = strstr (field_name, ".#");
+      if (dot_hash != nullptr && field_type->code () == TYPE_CODE_INT &&
+          field_val->type ()->name () == nullptr)
+	{
+	  /* Verify the part after .# is a digit.  */
+	  const char *p = dot_hash + 2;
+	  if (*p >= '0' && *p <= '9')
+	    {
+	      is_unboxed_tuple_field = true;
+	      /* Print as unboxed integer with # prefix.
+	         Use byte size to determine suffix (following LLDB's approach):
+	         4 bytes = int32# (suffix "l"), 8 bytes = int64# (suffix "L").  */
+	      LONGEST raw_val = value_as_long (field_val);
+	      const char *suffix = "";
+	      if (field_type->length () == 4)
+		suffix = "l";
+	      else if (field_type->length () == 8)
+		suffix = "L";
+
+	      if (raw_val < 0)
+		gdb_printf (stream, "-#%s%s", pulongest (-raw_val), suffix);
+	      else
+		gdb_printf (stream, "#%s%s", pulongest (raw_val), suffix);
+	    }
+	}
+
+      if (!is_unboxed_tuple_field)
+	{
+	  /* If it's a struct with DWARF type info, try DWARF-based printing first.
+	     This preserves proper OCaml semantics (semicolons, nested records, etc.).  */
+	  if (field_type->code () == TYPE_CODE_STRUCT)
+	    {
+	      if (!ocaml_print_with_type (field_val, stream, recurse + 1, options))
+		{
+		  /* DWARF printing failed - fall back to common_val_print.  */
+		  common_val_print (field_val, stream, recurse + 1, options, current_language);
+		}
+	    }
+	  else
+	    {
+	      /* Regular field: use ocaml_value_print_inner recursively.  */
+	      ocaml_value_print_inner (field_val, stream, recurse + 1, options);
+	    }
+	}
     }
 
   gdb_puts ("}", stream);
@@ -1961,6 +2012,10 @@ void
 ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 			 const struct value_print_options *options)
 {
+  /* Save the original value type BEFORE any transformations for type annotations.
+     This preserves typedef names which would be lost by check_typedef.  */
+  struct type *original_val_type = val->type ();
+
   struct type *type = check_typedef (val->type ());
   struct gdbarch *gdbarch = type->arch ();
 
@@ -2140,15 +2195,15 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
      This handles variants, records, and other structured types.  */
   if (type->code () == TYPE_CODE_STRUCT || TYPE_HAS_VARIANT_PARTS (type))
     {
-      if (ocaml_print_with_type (val, stream, recurse, options))
+      bool dwarf_success = ocaml_print_with_type (val, stream, recurse, options);
+      if (dwarf_success)
 	{
 	  /* Append type annotation: : TYPE @ REPRESENTATION
-	     Use original_type if the dereferenced type has no name.  */
-	  struct type *name_type = (type->name () != nullptr) ? type : original_type;
-	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (name_type);
-	  gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (name_type);
+	     Use original_val_type to preserve typedef names.  */
+	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (original_val_type);
+	  gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (original_val_type);
 
-	  if (type_name != nullptr)
+	  if (type_name != nullptr && representation != nullptr)
 	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
 
 	  return;
@@ -2158,12 +2213,14 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
   /* For integer and pointer types, check for unboxed representation first.  */
   if (type->code () == TYPE_CODE_INT || type->code () == TYPE_CODE_PTR)
     {
-      /* Use val->type() before check_typedef to get the typedef with annotation.  */
-      struct type *typedef_type = val->type ();
+      /* Use typedef_type (already set to val->type() at function start) to get annotation.  */
       gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (typedef_type);
 
-      /* Check if this is an unboxed integer type.  */
-      if (type->code () == TYPE_CODE_INT && ocaml_is_unboxed_representation (representation.get ()))
+      /* Check if this is an unboxed integer type.
+         Both TYPE_CODE_INT and TYPE_CODE_PTR can be unboxed integers:
+         - TYPE_CODE_INT: regular unboxed integers (int32#, nativeint#)
+         - TYPE_CODE_PTR: unboxed int64# in record fields  */
+      if (ocaml_is_unboxed_representation (representation.get ()))
 	{
 	  /* Print unboxed integer with # prefix.
 	     Format: #42l for int32, #42L for int64, #42n for nativeint.  */
@@ -2184,10 +2241,13 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 	  else
 	    gdb_printf (stream, "#%s%s", pulongest (int_val), suffix);
 
-	  /* Append type annotation.  */
-	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (typedef_type);
-	  if (type_name != nullptr)
-	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
+	  /* Append type annotation (only for top-level values).  */
+	  if (recurse == 0)
+	    {
+	      gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (typedef_type);
+	      if (type_name != nullptr)
+		gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
+	    }
 
 	  return;
 	}
@@ -2196,12 +2256,15 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
       LONGEST raw_val = value_as_long (val);
       ocaml_print_value (gdbarch, raw_val, stream, recurse, options);
 
-      /* Append type annotation.  */
-      struct type *name_type = (type->name () != nullptr) ? type : original_type;
-      gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (name_type);
+      /* Append type annotation (only for top-level values).  */
+      if (recurse == 0)
+	{
+	  struct type *name_type = (type->name () != nullptr) ? type : original_type;
+	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (name_type);
 
-      if (type_name != nullptr)
-	gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
+	  if (type_name != nullptr)
+	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
+	}
 
       return;
     }
@@ -2209,8 +2272,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
   /* Handle unboxed floats with # prefix.  */
   if (type->code () == TYPE_CODE_FLT)
     {
-      /* Use val->type() before check_typedef to get the typedef with annotation.  */
-      struct type *typedef_type = val->type ();
+      /* Use typedef_type (already set to val->type() at function start) to get annotation.  */
       gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (typedef_type);
 
       if (ocaml_is_unboxed_representation (representation.get ()))

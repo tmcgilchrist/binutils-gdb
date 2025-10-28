@@ -24,39 +24,17 @@
 
 load_lib "ocaml-support.exp"
 
-standard_testfile
-
-# Use multiple pre-compiled OxCaml binaries with DWARF 5 info
-set oxcaml_binary_datatypes "/home/tsmc/oxcaml/_build/main/oxcaml/tests/backend/oxcaml_dwarf/test_datatypes_dwarf.exe"
-set oxcaml_binary_unboxed "/home/tsmc/oxcaml/_build/main/oxcaml/tests/backend/oxcaml_dwarf/test_unboxed_dwarf.exe"
-
-if {![file exists $oxcaml_binary_datatypes]} {
-    unsupported "OxCaml datatypes test binary not found: $oxcaml_binary_datatypes"
+# Use standard OxCaml test setup for "datatypes" test binary
+if {[standard_oxcaml_testfile "datatypes"] == -1} {
     return
 }
+
+# Set up path for second binary (unboxed) that will be loaded later
+set oxcaml_binary_unboxed [get_oxcaml_binary_path "unboxed"]
 
 # ============================================================================
 # Test Polymorphic Unboxed Types from datatypes binary
 # ============================================================================
-
-# Check if binary has DWARF debug information
-set has_dwarf [expr {![catch {exec readelf -S $oxcaml_binary_datatypes | grep debug_info}]}]
-if {!$has_dwarf} {
-    unsupported "Binary does not contain DWARF debug information"
-    return
-}
-
-# Start GDB and load the external binary
-gdb_exit
-gdb_start
-gdb_reinitialize_dir $srcdir/$subdir
-gdb_file_cmd $oxcaml_binary_datatypes
-
-# Set the language to OCaml
-if {![set_lang_ocaml]} {
-    unsupported "Could not set language to OCaml"
-    return
-}
 
 gdb_test "break Test_datatypes_dwarf.f_poly_float64" \
     "Breakpoint .* at .*" \
@@ -106,20 +84,8 @@ gdb_test "print x" \
 # Test Polymorphic Unboxed Types from unboxed binary
 # ============================================================================
 
-if {![file exists $oxcaml_binary_unboxed]} {
-    unsupported "OxCaml unboxed test binary not found: $oxcaml_binary_unboxed"
-    return
-}
-
-# Load the unboxed binary
-gdb_exit
-gdb_start
-gdb_reinitialize_dir $srcdir/$subdir
-gdb_file_cmd $oxcaml_binary_unboxed
-
-# Set the language to OCaml
-if {![set_lang_ocaml]} {
-    unsupported "Could not set language to OCaml"
+# Switch to the unboxed binary using helper function
+if {[prepare_for_oxcaml_testing $oxcaml_binary_unboxed] != 0} {
     return
 }
 
