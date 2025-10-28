@@ -163,8 +163,8 @@ gdb_test "continue" \
 
 # Test record with unboxed tuple fields
 gdb_test "print x" \
-    ".*\\{.*f\\\\.#1.*=.*24.*s.*=.*\\\"hello\\\".*b.*=.*true.*f\\\\.#0.*=.*#42L.*\\}.* : t @ value.*" \
-    "Print record with unboxed tuple fields {f.#1=24; s=\"hello\"; b=true; f.#0=#42L}"
+    ".*\\{.*f\\\\.#1.*=.*#49L.*; s.*=.*\\\"hello\\\".*; b.*=.*true.*; f\\\\.#0.*=.*#42L.*\\}.* : t @ value.*" \
+    "Print record with unboxed tuple fields {f.#1=#49L; s=\"hello\"; b=true; f.#0=#42L}"
 
 # Test record with unboxed tuple - edge case values
 gdb_test "continue" \
@@ -172,8 +172,8 @@ gdb_test "continue" \
     "Continue to f_unboxed_tuple_field (edge case)"
 
 gdb_test "print x" \
-    ".*\\{.*f\\\\.#1.*=.*1.*s.*=.*\\\"\\\".*b.*=.*false.*f\\\\.#0.*=.*#0L.*\\}.* : t @ value.*" \
-    "Print record with unboxed tuple {f.#1=1; s=\"\"; b=false; f.#0=#0L}"
+    ".*\\{.*f\\\\.#1.*=.*#3L.*; s.*=.*\\\"\\\".*; b.*=.*false.*; f\\\\.#0.*=.*#0L.*\\}.* : t @ value.*" \
+    "Print record with unboxed tuple {f.#1=#3L; s=\"\"; b=false; f.#0=#0L}"
 
 # Test record with unboxed tuple - negative values
 gdb_test "continue" \
@@ -181,8 +181,8 @@ gdb_test "continue" \
     "Continue to f_unboxed_tuple_field (negative)"
 
 gdb_test "print x" \
-    ".*\\{.*f\\\\.#1.*=.*-100.*s.*=.*\\\"world\\\".*b.*=.*true.*f\\\\.#0.*=.*#10L.*\\}.* : t @ value.*" \
-    "Print record with unboxed tuple {f.#1=-100; s=\"world\"; b=true; f.#0=#10L}"
+    ".*\\{.*f\\\\.#1.*=.*-#199L.*; s.*=.*\\\"world\\\".*; b.*=.*true.*; f\\\\.#0.*=.*#10L.*\\}.* : t @ value.*" \
+    "Print record with unboxed tuple {f.#1=-#199L; s=\"world\"; b=true; f.#0=#10L}"
 
 # Summary: This test verifies that:
 # 1. Basic records print with field names and values
