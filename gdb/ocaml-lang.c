@@ -601,6 +601,29 @@ ocaml_get_variant_parts (struct type *type)
   return variant_prop->variant_parts ();
 }
 
+/* Check if this variant_part represents an unboxed variant.
+   Unboxed variants have discriminant stored in bit 0 of the same value
+   containing the data (bits 1-63 for float64, bits 1-31 for int32, etc.).
+
+   Returns true if the discriminant member has bit_size=1 and bit_offset=0.  */
+
+static bool
+ocaml_is_unboxed_variant (struct type *type, const variant_part &part)
+{
+  /* Check if the discriminant_index is valid.  */
+  if (part.discriminant_index < 0 || part.discriminant_index >= type->num_fields ())
+    return false;
+
+  /* Get the discriminant field.  */
+  const field &discr_field = type->field (part.discriminant_index);
+
+  /* Check if it has bit-level encoding (bit_size = 1, bit_offset = 0).  */
+  if (discr_field.bitsize () == 1 && discr_field.loc_bitpos () == 0)
+    return true;
+
+  return false;
+}
+
 /* Read the discriminant value from an OCaml value.
 
    For OCaml variant types, the discriminant is stored in the block header's
@@ -631,6 +654,14 @@ ocaml_read_discriminant_from_value (struct gdbarch *gdbarch, struct value *val,
 	return -1;
 
       val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
+
+      /* Check if this is an unboxed variant (discriminant in bit 0).  */
+      if (ocaml_is_unboxed_variant (type, part))
+	{
+	  /* For unboxed variants, the discriminant is bit 0 of the value.
+	     Bits 1-63 contain the actual data (float64, int32, etc.).  */
+	  return val_raw & 0x1;
+	}
     }
   else
     {
@@ -1209,6 +1240,116 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
       return true;
     }
 
+  /* Check if this is an unboxed variant (discriminant in bit 0).
+     Handle it separately since data is packed in the same value.  */
+  if (ocaml_is_unboxed_variant (type, part))
+    {
+      /* Read the full 64-bit value.  */
+      const gdb_byte *contents = val->contents ().data ();
+      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+      ULONGEST packed_value = extract_unsigned_integer (contents, ptr_size, byte_order);
+
+      /* Find the matching variant based on discriminant.  */
+      const variant *var = ocaml_find_matching_variant (part, discr);
+      if (var == nullptr || var->first_field < 0 || var->first_field >= type->num_fields ())
+	{
+	  gdb_printf (stream, "<invalid variant>");
+	  return true;
+	}
+
+      /* Get the data type from the variant's first field.  */
+      struct type *data_type = check_typedef (type->field (var->first_field).type ());
+
+      /* For unboxed variants, OCaml stores the data value AS-IS in the 64-bit word.
+	 The discriminant (bit 0) is part of the value's natural representation.
+	 For floats, bit 0 is the LSB of the mantissa, so the entire value is the float.
+	 NO SHIFTING NEEDED!  */
+      ULONGEST data_bits = packed_value;
+
+      /* Get constructor name from enum.  */
+      const char *constructor_name = "<unknown>";
+      if (part.discriminant_index >= 0 && part.discriminant_index < type->num_fields ())
+	{
+	  struct type *discr_type = check_typedef (type->field (part.discriminant_index).type ());
+	  if (discr_type->code () == TYPE_CODE_ENUM)
+	    {
+	      for (int i = 0; i < discr_type->num_fields (); ++i)
+		{
+		  if (discr_type->field (i).loc_enumval () == discr)
+		    {
+		      constructor_name = discr_type->field (i).name ();
+		      break;
+		    }
+		}
+	    }
+	}
+
+      /* Print the constructor name and unboxed data.  */
+      gdb_puts ("(", stream);
+      gdb_puts (constructor_name, stream);
+      gdb_puts (" ", stream);
+
+      /* Reinterpret data_bits as the proper type and print with # prefix.  */
+      if (data_type->code () == TYPE_CODE_FLT)
+	{
+	  /* Handle float types.  */
+	  if (data_type->length () == 8)
+	    {
+	      /* float64: reinterpret bits 1-63 as double.  */
+	      double float_val;
+	      /* Reconstruct full 64 bits for IEEE 754 double.  */
+	      memcpy (&float_val, &data_bits, sizeof (double));
+
+	      /* Check for negative values (sign bit).  */
+	      if (float_val < 0)
+		gdb_printf (stream, "-#%g", -float_val);
+	      else
+		gdb_printf (stream, "#%g", float_val);
+	    }
+	  else if (data_type->length () == 4)
+	    {
+	      /* float32: extract 32 bits and reinterpret.  */
+	      uint32_t float32_bits = (uint32_t)(data_bits & 0xFFFFFFFF);
+	      float float_val;
+	      memcpy (&float_val, &float32_bits, sizeof (float));
+
+	      if (float_val < 0)
+		gdb_printf (stream, "-#%g", -float_val);
+	      else
+		gdb_printf (stream, "#%g", float_val);
+	    }
+	}
+      else if (data_type->code () == TYPE_CODE_INT)
+	{
+	  /* Handle integer types.  */
+	  if (data_type->length () == 4)
+	    {
+	      /* int32/bits32: extract 32 bits.  */
+	      int32_t int_val = (int32_t)(data_bits & 0xFFFFFFFF);
+	      gdb_printf (stream, "#%ldl", (long)int_val);
+	    }
+	  else if (data_type->length () == 8)
+	    {
+	      /* int64/bits64: use all 63 bits.  */
+	      int64_t int_val = (int64_t)data_bits;
+	      gdb_printf (stream, "#%ldL", (long)int_val);
+	    }
+	  else if (data_type->length () == 8 && data_type->is_unsigned ())
+	    {
+	      /* nativeint: platform-specific int (64-bit on x86_64).  */
+	      gdb_printf (stream, "#%ldn", (long)data_bits);
+	    }
+	}
+      else
+	{
+	  /* Unknown unboxed type - print raw bits.  */
+	  gdb_printf (stream, "#0x%lx", (unsigned long)data_bits);
+	}
+
+      gdb_puts (")", stream);
+      return true;
+    }
 
   /* OCaml variants are encoded in two possible ways:
 
