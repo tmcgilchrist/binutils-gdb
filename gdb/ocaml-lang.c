@@ -1209,6 +1209,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
       return true;
     }
 
+
   /* OCaml variants are encoded in two possible ways:
 
      1. No-arg constructors (immediate values or constant blocks):
@@ -1261,9 +1262,32 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 
       if (target_type->code () == TYPE_CODE_STRUCT && target_type->num_fields () > 0)
 	{
-	  struct type *field0_type = check_typedef (target_type->field (0).type ());
-	  if (field0_type->code () == TYPE_CODE_ENUM)
-	    enum_type = field0_type;
+	  /* For polymorphic variants, the enum with all constructor names is at the
+	     discriminant of the variant_part, not necessarily at field[0].
+	     Check if this struct has variant_parts. */
+	  dynamic_prop *variant_prop = target_type->dyn_prop (DYN_PROP_VARIANT_PARTS);
+	  if (variant_prop != nullptr && variant_prop->kind () == PROP_VARIANT_PARTS)
+	    {
+	      gdb::array_view<variant_part> nested_parts = *variant_prop->variant_parts ();
+	      if (!nested_parts.empty () && nested_parts[0].discriminant_index >= 0)
+		{
+		  int discr_idx = nested_parts[0].discriminant_index;
+		  if (discr_idx < target_type->num_fields ())
+		    {
+		      struct type *discr_type = check_typedef (target_type->field (discr_idx).type ());
+		      if (discr_type->code () == TYPE_CODE_ENUM)
+			enum_type = discr_type;
+		    }
+		}
+	    }
+
+	  /* Fallback to field[0] if no variant_part found. */
+	  if (enum_type == nullptr)
+	    {
+	      struct type *field0_type = check_typedef (target_type->field (0).type ());
+	      if (field0_type->code () == TYPE_CODE_ENUM)
+		enum_type = field0_type;
+	    }
 	}
     }
 
@@ -1272,6 +1296,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
     {
       int max_bitsize = 0;
       int constructor_enum_field = -1;
+      int polymorphic_variant_enum_field = -1;
 
       for (int i = 0; i < type->num_fields (); ++i)
 	{
@@ -1280,7 +1305,27 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	  if (field_type->code () == TYPE_CODE_ENUM)
 	    {
 	      int bitsize = f.bitsize ();
-	      if (bitsize > max_bitsize)
+
+	      /* Check if this is a polymorphic variant enum by looking for:
+	         1. Enum field name starting with backtick
+	         2. Large enum values (hash values > 1000) */
+	      bool is_poly_variant = false;
+	      if (field_type->num_fields () > 0)
+		{
+		  const char *first_name = field_type->field (0).name ();
+		  LONGEST first_value = field_type->field (0).loc_enumval ();
+
+		  if (first_name && first_name[0] == '`')
+		    is_poly_variant = true;
+		  else if (first_value > 1000)
+		    is_poly_variant = true;
+		}
+
+	      if (is_poly_variant)
+		{
+		  polymorphic_variant_enum_field = i;
+		}
+	      else if (bitsize > max_bitsize)
 		{
 		  max_bitsize = bitsize;
 		  constructor_enum_field = i;
@@ -1288,16 +1333,85 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	    }
 	}
 
-      if (constructor_enum_field >= 0)
-	enum_type = check_typedef (type->field (constructor_enum_field).type ());
+      /* Prefer polymorphic variant enum if found, otherwise use regular variant enum */
+      if (polymorphic_variant_enum_field >= 0)
+	{
+	  enum_type = check_typedef (type->field (polymorphic_variant_enum_field).type ());
+	}
+      else if (constructor_enum_field >= 0)
+	{
+	  enum_type = check_typedef (type->field (constructor_enum_field).type ());
+	}
     }
 
-  /* Look up constructor name from enum using discriminant.  */
-  if (enum_type != nullptr)
+  /* Check if this is a polymorphic variant enum */
+  bool is_poly_variant_enum = false;
+  if (enum_type != nullptr && enum_type->num_fields () > 0)
+    {
+      const char *first_name = enum_type->field (0).name ();
+      if (first_name && first_name[0] == '`')
+	is_poly_variant_enum = true;
+    }
+
+  /* For polymorphic variant blocks, the discriminant (block tag) is not meaningful.
+     Instead, field[0] of the block contains the hash. Read it if this is a block. */
+  char poly_hash_name[64] = {0};
+  if (is_poly_variant_enum && is_block_value && constructor_name == nullptr)
+    {
+      CORE_ADDR block_addr = (CORE_ADDR) val_raw;
+      LONGEST field0_val;
+      if (ocaml_read_block_field (gdbarch, block_addr, 0, &field0_val))
+	{
+	  /* field0_val is the hash as an immediate value (raw with LSB=1).
+	     Try to match it against enum values. */
+	  if (enum_type != nullptr)
+	    {
+	      for (int i = 0; i < enum_type->num_fields (); ++i)
+		{
+		  LONGEST enum_value = enum_type->field (i).loc_enumval ();
+		  if (enum_value == field0_val)
+		    {
+		      constructor_name = enum_type->field (i).name ();
+		      break;
+		    }
+		}
+	    }
+
+	  /* If no match found in DWARF, format hash for display.
+	     NOTE: OxCaml's DWARF may not include all poly variant constructors in the enum,
+	     so we fall back to showing the hash value. */
+	  if (constructor_name == nullptr)
+	    {
+	      snprintf (poly_hash_name, sizeof(poly_hash_name), "`#0x%lx", (unsigned long)field0_val);
+	      constructor_name = poly_hash_name;
+	    }
+	}
+    }
+
+  /* Look up constructor name from enum using discriminant (for non-poly-variant or immediates).  */
+  if (constructor_name == nullptr && enum_type != nullptr)
     {
       for (int i = 0; i < enum_type->num_fields (); ++i)
 	{
-	  if (enum_type->field (i).loc_enumval () == discr)
+	  LONGEST enum_value = enum_type->field (i).loc_enumval ();
+
+	  /* For polymorphic variants, the enum value stores the raw immediate value
+	     (hash with LSB=1 tag), but the discriminant has been unshifted (>>1).
+	     We need to reconstruct the raw immediate from the discriminant to match. */
+	  bool match = false;
+	  if (is_poly_variant_enum)
+	    {
+	      /* Poly variant: reconstruct raw immediate from unshifted discriminant */
+	      LONGEST raw_discr = (discr << 1) | 1;
+	      match = (enum_value == raw_discr);
+	    }
+	  else
+	    {
+	      /* Regular variant: direct comparison */
+	      match = (enum_value == discr);
+	    }
+
+	  if (match)
 	    {
 	      constructor_name = enum_type->field (i).name ();
 	      break;
@@ -1335,10 +1449,14 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	  gdb_puts ("(", stream);
 	  gdb_puts (constructor_name, stream);
 
+	  /* For polymorphic variant blocks, field[0] contains the hash, not data.
+	     Skip it when printing. */
+	  ULONGEST start_field = is_poly_variant_enum ? 1 : 0;
+
 	  /* Print each field from the OCaml block.
 	     Respect print_max to avoid buffer overflows with large structures.  */
 	  ULONGEST print_limit = (options->print_max < num_fields) ? options->print_max : num_fields;
-	  for (ULONGEST i = 0; i < print_limit; ++i)
+	  for (ULONGEST i = start_field; i < print_limit; ++i)
 	    {
 	      LONGEST field_val;
 	      if (ocaml_read_block_field (gdbarch, block_addr, i, &field_val))
@@ -1355,7 +1473,9 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		    {
 		      /* DWARF fields: [0] = enum discriminant, [1..n] = data fields.
 		         OCaml block fields: [0..n-1] = data fields (no discriminant).
-		         So OCaml field i maps to DWARF field i+1.  */
+		         For polymorphic variants, OCaml field [0] = hash, [1..n] = data,
+		         so actual data starts at i and maps to DWARF field i+1.
+		         For regular variants, OCaml field i maps to DWARF field i+1.  */
 		      int dwarf_field_index = i + 1;
 		      if (dwarf_field_index < target_type->num_fields ())
 			{
