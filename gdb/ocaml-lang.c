@@ -104,6 +104,10 @@ ocaml_demangle (const char *symbol, int options)
 /* Forward declaration for helper function.  */
 static gdb::unique_xmalloc_ptr<char> ocaml_get_qualified_type_name (struct type *type);
 
+/* Forward declaration for value printing.  */
+static void ocaml_value_print (struct value *val, struct ui_file *stream,
+			       const struct value_print_options *options);
+
 /* Print an OCaml type with clean module-qualified names.
 
    This function enhances the default C type printer by cleaning up
@@ -239,6 +243,14 @@ public:
 		   const struct type_print_options *flags) const override
   {
     ocaml_print_type (type, varstring, stream, show, level, flags);
+  }
+
+  /* See language.h.  */
+
+  void value_print (struct value *val, struct ui_file *stream,
+		    const struct value_print_options *options) const override
+  {
+    return ocaml_value_print (val, stream, options);
   }
 
   /* See language.h.  */
@@ -845,6 +857,31 @@ ocaml_is_array_type (struct type *type)
   return (*after == '\0' || strncmp (after, " @", 2) == 0);
 }
 
+/* Check if a type represents an OCaml list.
+   Lists are identified by their type name containing " list".
+   Examples: "char list", "int list @ value", "string list", etc.  */
+
+static bool
+ocaml_is_list_type (struct type *type)
+{
+  if (type == nullptr)
+    return false;
+
+  const char *type_name = type->name ();
+  if (type_name == nullptr)
+    return false;
+
+  /* Check if type name contains " list" (may be followed by " @ value").
+     We use strstr to find the pattern anywhere in the type name.  */
+  const char *list_pos = strstr (type_name, " list");
+  if (list_pos == nullptr)
+    return false;
+
+  /* Make sure it's followed by either end-of-string or " @".  */
+  const char *after = list_pos + strlen (" list");
+  return (*after == '\0' || strncmp (after, " @", 2) == 0);
+}
+
 static bool
 ocaml_is_reference_type (struct type *type)
 {
@@ -1311,7 +1348,9 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		  /* Create a value from the raw OCaml field and print it.
 		     Try to use the proper DWARF field type if available (field index i+1
 		     since field 0 is the discriminant enum).  */
-		  struct type *field_type = builtin_type (gdbarch)->builtin_data_ptr;
+		  struct type *field_type = nullptr;
+		  bool use_typedef_type = false;
+
 		  if (target_type != nullptr && target_type->code () == TYPE_CODE_STRUCT)
 		    {
 		      /* DWARF fields: [0] = enum discriminant, [1..n] = data fields.
@@ -1320,24 +1359,95 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		      int dwarf_field_index = i + 1;
 		      if (dwarf_field_index < target_type->num_fields ())
 			{
-			  struct type *dwarf_field_type = target_type->field (dwarf_field_index).type ();
-			  /* Check if this is a simple type that value_from_longest can handle.
-			     For complex types (typedef, struct, etc.), use pointer type instead.
-			     value_from_longest only works with primitive types (int, enum, ptr, etc.).  */
-			  struct type *resolved_type = check_typedef (dwarf_field_type);
-			  if (resolved_type->code () == TYPE_CODE_INT ||
-			      resolved_type->code () == TYPE_CODE_ENUM ||
-			      resolved_type->code () == TYPE_CODE_PTR ||
-			      resolved_type->code () == TYPE_CODE_REF ||
-			      resolved_type->code () == TYPE_CODE_CHAR ||
-			      resolved_type->code () == TYPE_CODE_BOOL)
-			    field_type = dwarf_field_type;
-			  /* For struct/typedef types, fall back to pointer type.  */
+			  field_type = target_type->field (dwarf_field_index).type ();
+
+			  /* Check if this is a complex type (typedef to struct/variant).
+			     For typedef types like "char list @ value", preserve the typedef
+			     so recursive printing can identify the type correctly.  */
+			  struct type *resolved_type = check_typedef (field_type);
+			  if (resolved_type->code () == TYPE_CODE_STRUCT &&
+			      field_type->code () == TYPE_CODE_TYPEDEF)
+			    {
+			      /* Use value_at() to create a typed value at the address.
+			         This preserves typedef wrappers for recursive types.  */
+			      use_typedef_type = true;
+			    }
 			}
 		    }
 
-		  struct value *field_value = value_from_longest (field_type, field_val);
+		  /* Check for empty list BEFORE falling back to pointer type.
+		     This must be done while we still have the original DWARF field type.  */
+		  if (!ocaml_is_block (field_val) && field_type != nullptr)
+		    {
+		      const char *type_name = field_type->name ();
 
+		      /* If this is a typedef without a name, try resolving it or checking target.  */
+		      if (type_name == nullptr && field_type->code () == TYPE_CODE_TYPEDEF)
+			{
+			  struct type *resolved = check_typedef (field_type);
+			  if (resolved != nullptr)
+			    type_name = resolved->name ();
+
+			  /* Also check target_type.  */
+			  if (type_name == nullptr)
+			    {
+			      struct type *target = field_type->target_type ();
+			      if (target != nullptr)
+				type_name = target->name ();
+			    }
+			}
+
+		      if (type_name != nullptr && ocaml_is_list_type (field_type))
+			{
+			  gdb_puts ("[]", stream);
+			  continue;
+			}
+
+		      /* HEURISTIC: If we have a typedef (without name) that resolves to a struct,
+		         and the value is immediate, it's likely an empty constructor like [] or None.
+		         Since we can't determine the type from DWARF (OxCaml doesn't include field
+		         type names), we print [] as a best guess for recursive list types.  */
+		      if (type_name == nullptr && field_type->code () == TYPE_CODE_TYPEDEF)
+			{
+			  struct type *resolved = check_typedef (field_type);
+			  if (resolved != nullptr && resolved->code () == TYPE_CODE_STRUCT)
+			    {
+			      /* This is likely an empty list or option. Print [] as a guess.  */
+			      gdb_puts ("[]", stream);
+			      continue;
+			    }
+			}
+		    }
+
+		  /* Fall back to pointer type if no field type found.  */
+		  if (field_type == nullptr)
+		    field_type = builtin_type (gdbarch)->builtin_data_ptr;
+
+		  struct value *field_value;
+
+		  if (use_typedef_type && ocaml_is_block (field_val))
+		    {
+		      /* For typedef-wrapped complex types (that are blocks/pointers),
+		         create value at address. This preserves type information for
+		         recursive printing.  */
+		      field_value = value_at (field_type, (CORE_ADDR) field_val);
+		    }
+		  else if (use_typedef_type)
+		    {
+		      /* For other typedef-wrapped complex types that are immediates,
+		         fall back to pointer type.  */
+		      struct type *ptr_type = builtin_type (gdbarch)->builtin_data_ptr;
+		      field_value = value_from_longest (ptr_type, field_val);
+		    }
+		  else
+		    {
+		      /* For simple types, use value_from_longest with the field type.  */
+		      field_value = value_from_longest (field_type, field_val);
+		    }
+
+		  /* Print the field value recursively.
+		     Empty lists will be detected and handled at the top level of
+		     ocaml_value_print_inner() when printing list types.  */
 		  ocaml_value_print_inner (field_value, stream, recurse + 1, options);
 		}
 	    }
@@ -2177,6 +2287,27 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
   gdb_puts ("<null>", stream);
 }
 
+/* Top-level value printing for OCaml.
+
+   This overrides the default C-based `value_print` to avoid printing the
+   type cast prefix `(typename)` for records and other struct types.
+
+   OCaml's type annotations come at the end (`: TYPE @ REPRESENTATION`),
+   not as a prefix cast, so we skip the C++ objectprint logic entirely.  */
+
+static void
+ocaml_value_print (struct value *val, struct ui_file *stream,
+		   const struct value_print_options *options)
+{
+  /* Simply delegate to the inner printer at recursion level 0.
+     The inner printer handles all OCaml-specific printing and type annotations.
+     By not calling c_value_print, we avoid the (typename) prefix that C++ uses.  */
+  struct value_print_options opts = *options;
+  opts.deref_ref = true;
+
+  ocaml_value_print_inner (val, stream, 0, &opts);
+}
+
 /* Implement la_value_print_inner for OCaml.
 
    OCaml uses a tagged value representation:
@@ -2376,6 +2507,33 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 	gdb_printf (stream, " : %s @ %s", type_name_for_exn.get (), representation.get ());
 
       return;
+    }
+
+  /* Check for lists with empty value - print [] for immediate values in list types.
+     This must be done before variant printing to catch empty list [] constructor.
+     Use original_val_type to preserve typedef names.  */
+  if (ocaml_is_list_type (original_val_type))
+    {
+      /* Read the raw value to check if it's immediate (empty list).  */
+      const gdb_byte *contents = val->contents ().data ();
+      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+      LONGEST val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
+
+      /* If it's an immediate value (not a block), it's the empty list [].  */
+      if (!ocaml_is_block (val_raw))
+	{
+	  gdb_puts ("[]", stream);
+
+	  /* Add type annotation.  */
+	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (original_val_type);
+	  gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (original_val_type);
+	  if (type_name != nullptr && representation != nullptr)
+	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
+
+	  return;
+	}
+      /* Otherwise it's a cons cell (::), fall through to variant printing.  */
     }
 
   /* Check for arrays BEFORE checking for structs, since arrays have typedef names
