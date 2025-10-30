@@ -15,14 +15,21 @@
 
 # Auxiliary function to set the language to OCaml.
 # The result is 1 (true) for success, 0 (false) for failure.
+# Optional test_suffix parameter can be used to make test descriptions unique.
 
-proc set_lang_ocaml {} {
-    if {[gdb_test_no_output "set language ocaml"]} {
+proc set_lang_ocaml {{test_suffix ""}} {
+    if {$test_suffix != ""} {
+	set suffix " for $test_suffix"
+    } else {
+	set suffix ""
+    }
+
+    if {[gdb_test_no_output "set language ocaml" "set language ocaml${suffix}"]} {
 	return 0
     }
     if {[gdb_test "show language" \
 	     [string_to_regexp {The current source language is "ocaml".}] \
-	     {set language to "ocaml"}]} {
+	     "show language${suffix}"]} {
 	return 0
     }
     return 1
@@ -107,7 +114,9 @@ proc prepare_for_oxcaml_testing { binary_path } {
     }
 
     # Set language to OCaml
-    if {![set_lang_ocaml]} {
+    # Extract binary name for unique test description
+    set binary_name [file tail [file rootname $binary_path]]
+    if {![set_lang_ocaml $binary_name]} {
 	unsupported "Could not set language to OCaml"
 	return -1
     }

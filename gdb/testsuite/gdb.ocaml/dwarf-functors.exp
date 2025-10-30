@@ -48,7 +48,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*, .*f_int_set.*" \
-    "Continue to f_int_set (set with 3 elements)"
+    "Continue to f_int_set call 2 with set of 3 elements"
 
 # Test 3: StringSet functor (MakeSet instantiated with StringOrder)
 gdb_test "break Test_simple_functor_dwarf.f_string_set" \
@@ -65,7 +65,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*, .*f_string_set.*" \
-    "Continue to f_string_set (set with 2 elements)"
+    "Continue to f_string_set call 2 with set of 2 elements"
 
 # Test 4: FloatSet functor (MakeSet instantiated with FloatOrder)
 gdb_test "break Test_simple_functor_dwarf.f_float_set" \
@@ -95,7 +95,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*, .*f_int_store.*" \
-    "Continue to f_int_store (store with 2 entries)"
+    "Continue to f_int_store call 2 with store of 2 entries"
 
 # Test 6: StringStore functor (MakeSimpleStore instantiated with StringOrder)
 gdb_test "break Test_simple_functor_dwarf.f_string_store" \
@@ -112,7 +112,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*, .*f_string_store.*" \
-    "Continue to f_string_store (store with 2 entries)"
+    "Continue to f_string_store call 2 with store of 2 entries"
 
 # Test 7: Set operations (using IntSet)
 gdb_test "break Test_simple_functor_dwarf.f_set_operations" \

@@ -58,7 +58,7 @@ gdb_test "print x" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_bool (false)"
+    "Continue to f_bool call 2 with false"
 
 # ============================================================================
 # Test Char Values
@@ -86,7 +86,7 @@ gdb_test "print x" \
 # Test newline char
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_char (newline)"
+    "Continue to f_char call 2 with newline"
 
 gdb_test "print x" \
     ".*'.*'.* : char @ value.*" \
@@ -111,11 +111,11 @@ gdb_test "print x" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_string (second call)"
+    "Continue to f_string for second call"
 
 gdb_test "print x" \
     ".*: .* @ .*" \
-    "Print string shows type annotation (second call)"
+    "Print string shows type annotation for second call"
 
 # ============================================================================
 

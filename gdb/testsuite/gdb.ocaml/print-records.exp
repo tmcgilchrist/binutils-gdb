@@ -41,7 +41,7 @@ gdb_test "run" \
 
 # Test basic record with positive values
 gdb_test "print x" \
-    ".*\\{.*x.*=.*42.*y.*=.*3\\\\.14.*\\}.* : basic_record @ value.*" \
+    ".*\\{.*x.*=.*42.*y.*=.*3.14.*\\}.* : basic_record @ value.*" \
     "Print basic record {x=42; y=3.14} shows fields and type annotation"
 
 # Test basic record with zero values
@@ -50,16 +50,16 @@ gdb_test "continue" \
     "Continue to f_basic_record (zero values)"
 
 gdb_test "print x" \
-    ".*\\{.*x.*=.*0.*y.*=.*0\\\\.0.*\\}.* : basic_record @ value.*" \
+    ".*\\{.*x.*=.*0.*y.*=.*0.0.*\\}.* : basic_record @ value.*" \
     "Print basic record {x=0; y=0.0} shows zero values"
 
 # Test basic record with negative values
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_basic_record (negative values)"
+    "Continue to f_basic_record call 2 with negative values"
 
 gdb_test "print x" \
-    ".*\\{.*x.*=.*-123.*y.*=.*-2\\\\.5.*\\}.* : basic_record @ value.*" \
+    ".*\\{.*x.*=.*-123.*y.*=.*-2.5.*\\}.* : basic_record @ value.*" \
     "Print basic record {x=-123; y=-2.5} shows negative values"
 
 # ============================================================================
@@ -76,16 +76,16 @@ gdb_test "continue" \
 
 # Test mixed record with boxed and unboxed fields
 gdb_test "print x" \
-    ".*\\{.*a.*=.*42.*c.*=.*true.*d.*=.*1000l.*b.*=.*#3\\\\.14.*\\}.* : mixed_record @ value.*" \
+    ".*\\{.*a.*=.*42.*c.*=.*true.*d.*=.*1000l.*b.*=.*#3.14.*\\}.* : mixed_record @ value.*" \
     "Print mixed record {a=42; c=true; d=1000l; b=#3.14} shows mixed fields"
 
 # Test mixed record with zero/false values
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_mixed_record (zeros)"
+    "Continue to f_mixed_record call 2 with zero values"
 
 gdb_test "print x" \
-    ".*\\{.*a.*=.*0.*c.*=.*false.*d.*=.*0l.*b.*=.*#0\\\\.0.*\\}.* : mixed_record @ value.*" \
+    ".*\\{.*a.*=.*0.*c.*=.*false.*d.*=.*0l.*b.*=.*#0.0.*\\}.* : mixed_record @ value.*" \
     "Print mixed record with zero/false values"
 
 # ============================================================================
@@ -108,7 +108,7 @@ gdb_test "print x" \
 # Test unboxed record with zero
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_record_simple (zero)"
+    "Continue to f_unboxed_record_simple call 2 with zero"
 
 gdb_test "print x" \
     ".*\\{.*value.*=.*0.*\\}.* : unboxed_record_simple @ value.*" \
@@ -117,7 +117,7 @@ gdb_test "print x" \
 # Test unboxed record with negative
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_record_simple (negative)"
+    "Continue to f_unboxed_record_simple call 3 with negative"
 
 gdb_test "print x" \
     ".*\\{.*value.*=.*-999.*\\}.* : unboxed_record_simple @ value.*" \
@@ -137,16 +137,16 @@ gdb_test "continue" \
 
 # Test nested record
 gdb_test "print x" \
-    ".*\\{.*data.*=.*\\{.*x.*=.*10.*y.*=.*2\\\\.0.*\\}.*\\}.* : unboxed_record_complex @ value.*" \
+    ".*\\{.*data.*=.*\\{.*x.*=.*10.*y.*=.*2.0.*\\}.*\\}.* : unboxed_record_complex @ value.*" \
     "Print nested record {data={x=10; y=2.0}} shows nested structure"
 
 # Test nested record with zeros
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_record_complex (zeros)"
+    "Continue to f_unboxed_record_complex call 2 with zeros"
 
 gdb_test "print x" \
-    ".*\\{.*data.*=.*\\{.*x.*=.*0.*y.*=.*0\\\\.0.*\\}.*\\}.* : unboxed_record_complex @ value.*" \
+    ".*\\{.*data.*=.*\\{.*x.*=.*0.*y.*=.*0.0.*\\}.*\\}.* : unboxed_record_complex @ value.*" \
     "Print nested record with zero values"
 
 # ============================================================================
@@ -162,27 +162,30 @@ gdb_test "continue" \
     "Continue to f_unboxed_tuple_field"
 
 # Test record with unboxed tuple fields
+# Note: f = #(#42L, 24) where #42L is int64# (f.#0) and 24 is int (f.#1)
 gdb_test "print x" \
-    ".*\\{.*f\\\\.#1.*=.*#49L.*; s.*=.*\\\"hello\\\".*; b.*=.*true.*; f\\\\.#0.*=.*#42L.*\\}.* : t @ value.*" \
-    "Print record with unboxed tuple fields {f.#1=#49L; s=\"hello\"; b=true; f.#0=#42L}"
+    ".*\\{.*f.#1.*=.*24.*s.*=.*\\\"hello\\\".*b.*=.*true.*f.#0.*=.*#42L.*\\}.* : t @ value.*" \
+    "Print record with unboxed tuple fields {f.#1=24; s=\"hello\"; b=true; f.#0=#42L}"
 
 # Test record with unboxed tuple - edge case values
+# Note: f = #(#0L, 1) where #0L is int64# (f.#0) and 1 is int (f.#1)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_tuple_field (edge case)"
+    "Continue to f_unboxed_tuple_field call 2 with edge case"
 
 gdb_test "print x" \
-    ".*\\{.*f\\\\.#1.*=.*#3L.*; s.*=.*\\\"\\\".*; b.*=.*false.*; f\\\\.#0.*=.*#0L.*\\}.* : t @ value.*" \
-    "Print record with unboxed tuple {f.#1=#3L; s=\"\"; b=false; f.#0=#0L}"
+    ".*\\{.*f.#1.*=.*1.*s.*=.*\\\"\\\".*b.*=.*false.*f.#0.*=.*#0L.*\\}.* : t @ value.*" \
+    "Print record with unboxed tuple {f.#1=1; s=\"\"; b=false; f.#0=#0L}"
 
 # Test record with unboxed tuple - negative values
+# Note: f = #(#10L, -100) where #10L is int64# (f.#0) and -100 is int (f.#1)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_tuple_field (negative)"
+    "Continue to f_unboxed_tuple_field call 3 with negative"
 
 gdb_test "print x" \
-    ".*\\{.*f\\\\.#1.*=.*-#199L.*; s.*=.*\\\"world\\\".*; b.*=.*true.*; f\\\\.#0.*=.*#10L.*\\}.* : t @ value.*" \
-    "Print record with unboxed tuple {f.#1=-#199L; s=\"world\"; b=true; f.#0=#10L}"
+    ".*\\{.*f.#1.*=.*-100.*s.*=.*\\\"world\\\".*b.*=.*true.*f.#0.*=.*#10L.*\\}.* : t @ value.*" \
+    "Print record with unboxed tuple {f.#1=-100; s=\"world\"; b=true; f.#0=#10L}"
 
 # Summary: This test verifies that:
 # 1. Basic records print with field names and values

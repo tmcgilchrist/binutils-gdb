@@ -60,7 +60,7 @@ gdb_test "print x" \
 # Test variant with int data
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_simple_variant (C with int)"
+    "Continue to f_simple_variant call 2 with C constructor and int"
 
 gdb_test "print x" \
     ".*(C.*42.*).* : simple_variant @ value.*" \
@@ -69,10 +69,10 @@ gdb_test "print x" \
 # Test variant with float data
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_simple_variant (D with float)"
+    "Continue to f_simple_variant call 3 with D constructor and float"
 
 gdb_test "print x" \
-    ".*(D.*3\\\\.14.*).* : simple_variant @ value.*" \
+    ".*(D.*3.14.*).* : simple_variant @ value.*" \
     "Print simple variant (D 3.14) shows constructor with float data"
 
 # ============================================================================
@@ -95,7 +95,7 @@ gdb_test "print x" \
 # Test Single with int
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_complex_variant (Single)"
+    "Continue to f_complex_variant call 2 with Single constructor"
 
 gdb_test "print x" \
     ".*(Single.*123.*).* : complex_variant @ value.*" \
@@ -104,28 +104,28 @@ gdb_test "print x" \
 # Test Pair with tuple
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_complex_variant (Pair)"
+    "Continue to f_complex_variant call 3 with Pair constructor"
 
 gdb_test "print x" \
-    ".*(Pair.*(42.*1\\\\.5.*)).* : complex_variant @ value.*" \
+    ".*(Pair.*(42.*1.5.*)).* : complex_variant @ value.*" \
     "Print complex variant (Pair (42, 1.5)) shows constructor with tuple"
 
 # Test Record variant
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_complex_variant (Record)"
+    "Continue to f_complex_variant call 4 with Record constructor"
 
 gdb_test "print x" \
-    ".*(Record.*\\{.*x.*=.*10.*y.*=.*2\\\\.5.*\\}).* : complex_variant @ value.*" \
+    ".*(Record.*\\{.*x.*=.*10.*y.*=.*2.5.*\\}).* : complex_variant @ value.*" \
     "Print complex variant (Record {x=10; y=2.5}) shows constructor with record"
 
 # Test Mixed boxed/unboxed variant
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_complex_variant (Mixed)"
+    "Continue to f_complex_variant call 5 with Mixed constructor"
 
 gdb_test "print x" \
-    ".*(Mixed.*\\{.*a.*=.*100.*c.*=.*true.*b.*=.*#3\\\\.14.*\\}).* : complex_variant @ value.*" \
+    ".*(Mixed.*\\{.*a.*=.*100.*c.*=.*true.*b.*=.*#3.14.*\\}).* : complex_variant @ value.*" \
     "Print complex variant (Mixed) shows mixed boxed/unboxed fields"
 
 # ============================================================================
@@ -142,25 +142,25 @@ gdb_test "continue" \
 
 # Test unboxed float variant
 gdb_test "print x" \
-    ".*(Simple.*#4\\\\.1.*).* : unboxed_variant_float @ float64.*" \
+    ".*(Simple.*#4.1.*).* : unboxed_variant_float @ float64.*" \
     "Print unboxed variant (Simple #4.1) shows # prefix and @ float64"
 
 # Test unboxed float variant with zero
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_variant_float (zero)"
+    "Continue to f_unboxed_variant_float call 2 with zero value"
 
 gdb_test "print x" \
-    ".*(Simple.*#0\\\\.0.*).* : unboxed_variant_float @ float64.*" \
+    ".*(Simple.*#0.0.*).* : unboxed_variant_float @ float64.*" \
     "Print unboxed variant (Simple #0.0) shows zero value"
 
 # Test unboxed float variant with negative
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_variant_float (negative)"
+    "Continue to f_unboxed_variant_float call 3 with negative value"
 
 gdb_test "print x" \
-    ".*(Simple.*-#2\\\\.5.*).* : unboxed_variant_float @ float64.*" \
+    ".*(Simple.*-#2.5.*).* : unboxed_variant_float @ float64.*" \
     "Print unboxed variant (Simple -#2.5) shows negative value"
 
 # ============================================================================
@@ -183,7 +183,7 @@ gdb_test "print x" \
 # Test unboxed int32 variant with zero
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_variant_int (zero)"
+    "Continue to f_unboxed_variant_int call 2 with zero value"
 
 gdb_test "print x" \
     ".*(Complex.*#0l.*).* : unboxed_variant_int @ bits32.*" \
@@ -208,7 +208,7 @@ gdb_test "print x" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_variant_value_int (zero)"
+    "Continue to f_unboxed_variant_value_int call 2 with zero value"
 
 gdb_test "print x" \
     ".*(ValueInt.*0.*).* : unboxed_variant_value_int @ value.*" \
@@ -229,7 +229,7 @@ gdb_test "print x" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_variant_value_string (empty)"
+    "Continue to f_unboxed_variant_value_string call 2 with empty string"
 
 gdb_test "print x" \
     ".*(ValueString.*\\\"\\\".*).* : unboxed_variant_value_string @ value.*" \
@@ -250,7 +250,7 @@ gdb_test "print x" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_variant_value_bool (false)"
+    "Continue to f_unboxed_variant_value_bool call 2 with false value"
 
 gdb_test "print x" \
     ".*(ValueBool.*false.*).* : unboxed_variant_value_bool @ value.*" \
@@ -276,10 +276,10 @@ gdb_test "print x" \
 # Test node with nested structure
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_nested_variant (Node)"
+    "Continue to f_nested_variant call 2 with Node constructor"
 
 gdb_test "print x" \
-    ".*(Node.*\\{.*left.*=.*(Leaf.*1.*).*right.*=.*(Leaf.*2.*).*value.*=.*3\\\\.14.*\\}).* : nested_variant @ value.*" \
+    ".*(Node.*\\{.*left.*=.*(Leaf.*1.*).*right.*=.*(Leaf.*2.*).*value.*=.*3.14.*\\}).* : nested_variant @ value.*" \
     "Print nested variant (Node) shows recursive structure"
 
 # ============================================================================
@@ -302,7 +302,7 @@ gdb_test "print x" \
 # Test Some
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_option_variant (Some)"
+    "Continue to f_option_variant call 2 with Some constructor"
 
 gdb_test "print x" \
     ".*(Some.*42.*).* : int option_variant @ value.*" \
@@ -328,7 +328,7 @@ gdb_test "print x" \
 # Test Right
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_either (Right)"
+    "Continue to f_either call 2 with Right constructor"
 
 gdb_test "print x" \
     ".*(Right.*\\\"hello\\\".*).* : \\(int, string\\) either @ value.*" \

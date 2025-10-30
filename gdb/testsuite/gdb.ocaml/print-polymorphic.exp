@@ -74,11 +74,11 @@ gdb_test "print x" \
 # Test polymorphic bits32 with negative value
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_poly_bits32 (negative)"
+    "Continue to f_poly_bits32 call 2 with negative value"
 
 gdb_test "print x" \
     ".*-#.*l.* : a.* @ bits32.*" \
-    "Print polymorphic bits32 (negative) shows 'a/N @ bits32'"
+    "Print polymorphic bits32 call 3 negative shows 'a/N @ bits32'"
 
 # ============================================================================
 # Test Polymorphic Unboxed Types from unboxed binary
@@ -91,11 +91,11 @@ if {[prepare_for_oxcaml_testing $oxcaml_binary_unboxed] != 0} {
 
 gdb_test "break Test_unboxed_dwarf.f_poly_float64" \
     "Breakpoint .* at .*" \
-    "Set breakpoint at f_poly_float64 (unboxed)"
+    "Set breakpoint at f_poly_float64 for unboxed test"
 
 gdb_test "run" \
     ".*Breakpoint.*" \
-    "Run to f_poly_float64 (unboxed)"
+    "Run to f_poly_float64 for unboxed test"
 
 # Test polymorphic float64
 gdb_test "print x" \
@@ -105,7 +105,7 @@ gdb_test "print x" \
 # Test with negative value
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_poly_float64 (negative)"
+    "Continue to f_poly_float64 call 2 with negative value"
 
 gdb_test "print x" \
     ".*-#.*: a @ float64.*" \
@@ -114,7 +114,7 @@ gdb_test "print x" \
 # Test with large value
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_poly_float64 (large)"
+    "Continue to f_poly_float64 call 3 with large value"
 
 gdb_test "print x" \
     ".*#.*: a @ float64.*" \
@@ -122,11 +122,11 @@ gdb_test "print x" \
 
 gdb_test "break Test_unboxed_dwarf.f_poly_bits32" \
     "Breakpoint .* at .*" \
-    "Set breakpoint at f_poly_bits32 (unboxed)"
+    "Set breakpoint at f_poly_bits32 for unboxed test"
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_poly_bits32 (unboxed)"
+    "Continue to f_poly_bits32 for unboxed test"
 
 # Test polymorphic bits32
 gdb_test "print x" \
@@ -136,7 +136,7 @@ gdb_test "print x" \
 # Test with negative value
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_poly_bits32 (negative)"
+    "Continue to f_poly_bits32 call 3 with negative value"
 
 gdb_test "print x" \
     ".*-#.*l.* : a.* @ bits32.*" \

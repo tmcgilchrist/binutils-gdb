@@ -52,7 +52,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_mutable_object (after increment)"
+    "Continue to f_mutable_object call 2 after increment"
 
 # Test 4: Class instances
 gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_class_instance" \
@@ -65,7 +65,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_class_instance (after increments)"
+    "Continue to f_class_instance call 2 after increments"
 
 # Test 5: Class with constructor parameters
 gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_point_class" \
@@ -78,7 +78,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_point_class (after move)"
+    "Continue to f_point_class call 2 after move"
 
 # Test 6: Base class
 gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_base_class" \
@@ -118,7 +118,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_overridden_method (after hitting limit)"
+    "Continue to f_overridden_method call 2 after hitting limit"
 
 # Test 10: Polymorphic objects
 gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_polymorphic_object" \
@@ -131,11 +131,11 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_polymorphic_object (circle)"
+    "Continue to f_polymorphic_object call 2 with circle"
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_polymorphic_object (rectangle)"
+    "Continue to f_polymorphic_object call 3 with rectangle"
 
 # Test 11: Virtual methods (dog class)
 gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_virtual_class_dog" \
@@ -166,7 +166,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_private_methods (after increments)"
+    "Continue to f_private_methods call 2 after increments"
 
 # Test 14: Multiple parameters
 gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_multi_param_class" \
@@ -179,7 +179,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_multi_param_class (100, 25)"
+    "Continue to f_multi_param_class call 2 with 100 and 25"
 
 # Test 15: Self reference
 gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_self_reference" \
@@ -192,7 +192,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_self_reference (after chained increments)"
+    "Continue to f_self_reference call 2 after chained increments"
 
 # Test 16: Object cloning
 gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_cloneable_object" \
@@ -205,7 +205,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_cloneable_object (cloned)"
+    "Continue to f_cloneable_object call 2 with cloned object"
 
 # Summary: This test verifies that:
 # 1. GDB can set breakpoints on functions with object/class type parameters

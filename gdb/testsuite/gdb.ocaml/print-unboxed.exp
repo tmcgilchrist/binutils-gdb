@@ -47,7 +47,7 @@ gdb_test "print x" \
 # Test unboxed float with zero
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_float (call 2: zero value)"
+    "Continue to f_unboxed_float call 2 with zero value"
 
 gdb_test "print x" \
     ".*#0.* : .* @ float64.*" \
@@ -56,7 +56,7 @@ gdb_test "print x" \
 # Test unboxed float with negative
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_float (call 3: negative value)"
+    "Continue to f_unboxed_float call 3 with negative value"
 
 gdb_test "print x" \
     ".*-#.*: .* @ float64.*" \
@@ -65,7 +65,7 @@ gdb_test "print x" \
 # Test unboxed float with large value (scientific notation)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_float (call 4: large value)"
+    "Continue to f_unboxed_float call 4 with large value"
 
 gdb_test "print x" \
     ".*#.*: .* @ float64.*" \
@@ -91,7 +91,7 @@ gdb_test "print x" \
 # Test unboxed float32 with zero
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_float32 (call 2: zero value)"
+    "Continue to f_unboxed_float32 call 2 with zero value"
 
 gdb_test "print x" \
     ".*#0.* : .* @ float32.*" \
@@ -100,7 +100,7 @@ gdb_test "print x" \
 # Test unboxed float32 with negative
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_float32 (call 3: negative value)"
+    "Continue to f_unboxed_float32 call 3 with negative value"
 
 gdb_test "print x" \
     ".*-#.*: .* @ float32.*" \
@@ -127,7 +127,7 @@ gdb_test "print x" \
 # Test unboxed nativeint with large value (second call: #0x123456789abcdefn)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_nativeint (call 2: large hex value)"
+    "Continue to f_unboxed_nativeint call 2 with large hex value"
 
 gdb_test "print x" \
     ".*#.*n.*: .* @ word.*" \
@@ -136,7 +136,7 @@ gdb_test "print x" \
 # Test unboxed nativeint with negative (third call: -#999n)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_nativeint (call 3: negative value)"
+    "Continue to f_unboxed_nativeint call 3 with negative value"
 
 gdb_test "print x" \
     ".*-#.*n.*: .* @ word.*" \
@@ -162,7 +162,7 @@ gdb_test "print x" \
 # Test unboxed int32 with large value (second call: #0x12345678l)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int32 (call 2: large hex value)"
+    "Continue to f_unboxed_int32 call 2 with large hex value"
 
 gdb_test "print x" \
     ".*#\\\d+l.* : .* @ bits32.*" \
@@ -171,7 +171,7 @@ gdb_test "print x" \
 # Test unboxed int32 with negative (third call: -#456l)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int32 (call 3: negative value)"
+    "Continue to f_unboxed_int32 call 3 with negative value"
 
 gdb_test "print x" \
     ".*-#\\\d+l.* : .* @ bits32.*" \
@@ -197,7 +197,7 @@ gdb_test "print x" \
 # Test unboxed int64 with large value (second call: #0x123456789abcdefL)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int64 (call 2: large hex value)"
+    "Continue to f_unboxed_int64 call 2 with large hex value"
 
 gdb_test "print x" \
     ".*#\\\d+L.* : .* @ bits64.*" \
@@ -206,7 +206,7 @@ gdb_test "print x" \
 # Test unboxed int64 with negative (third call: -#789L)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int64 (call 3: negative value)"
+    "Continue to f_unboxed_int64 call 3 with negative value"
 
 gdb_test "print x" \
     ".*-#\\\d+L.* : .* @ bits64.*" \
@@ -232,7 +232,7 @@ gdb_test "print x" \
 # Test unboxed int8 with zero
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int8 (call 2: zero value)"
+    "Continue to f_unboxed_int8 call 2 with zero value"
 
 gdb_test "print x" \
     ".*#0.* : .* @ .*" \
@@ -241,7 +241,7 @@ gdb_test "print x" \
 # Test unboxed int8 with negative
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int8 (call 3: negative value)"
+    "Continue to f_unboxed_int8 call 3 with negative value"
 
 gdb_test "print x" \
     ".*-#\\\d+.* : .* @ .*" \
@@ -250,7 +250,7 @@ gdb_test "print x" \
 # Test unboxed int8 max value (127)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int8 (call 4: max value 127)"
+    "Continue to f_unboxed_int8 call 4 with max value 127"
 
 gdb_test "print x" \
     ".*#127.* : .* @ .*" \
@@ -259,7 +259,7 @@ gdb_test "print x" \
 # Test unboxed int8 min value (-128)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int8 (call 5: min value -128)"
+    "Continue to f_unboxed_int8 call 5 with min value -128"
 
 gdb_test "print x" \
     ".*-#128.* : .* @ .*" \
@@ -285,7 +285,7 @@ gdb_test "print x" \
 # Test unboxed int16 with zero
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int16 (call 2: zero value)"
+    "Continue to f_unboxed_int16 call 2 with zero value"
 
 gdb_test "print x" \
     ".*#0.* : .* @ .*" \
@@ -294,7 +294,7 @@ gdb_test "print x" \
 # Test unboxed int16 with negative
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int16 (call 3: negative value)"
+    "Continue to f_unboxed_int16 call 3 with negative value"
 
 gdb_test "print x" \
     ".*-#\\\d+.* : .* @ .*" \
@@ -303,7 +303,7 @@ gdb_test "print x" \
 # Test unboxed int16 max value (32767)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int16 (call 4: max value 32767)"
+    "Continue to f_unboxed_int16 call 4 with max value 32767"
 
 gdb_test "print x" \
     ".*#32767.* : .* @ .*" \
@@ -312,7 +312,7 @@ gdb_test "print x" \
 # Test unboxed int16 min value (-32768)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_unboxed_int16 (call 5: min value -32768)"
+    "Continue to f_unboxed_int16 call 5 with min value -32768"
 
 gdb_test "print x" \
     ".*-#32768.* : .* @ .*" \
@@ -344,11 +344,11 @@ gdb_test "info args" \
 # Skip remaining calls to f_simple_product (called 3 times total)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_simple_product (call 2: zero values)"
+    "Continue to f_simple_product call 2 with zero values"
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_simple_product (call 3: negative values)"
+    "Continue to f_simple_product call 3 with negative values"
 
 # ============================================================================
 # Test Mixed Product (boxed + unboxed)
@@ -375,7 +375,7 @@ gdb_test "info args" \
 # Skip remaining call to f_mixed_product (called 2 times total)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_mixed_product (call 2: zero/false values)"
+    "Continue to f_mixed_product call 2 with zero/false values"
 
 # ============================================================================
 # Test Unboxed Record
@@ -401,11 +401,11 @@ gdb_test "info args" \
 # Skip remaining calls to f_simple_record (called 3 times total)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_simple_record (call 2: zero values)"
+    "Continue to f_simple_record call 2 with zero values"
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_simple_record (call 3: negative values)"
+    "Continue to f_simple_record call 3 with negative values"
 
 # ============================================================================
 # Test Mixed Record (boxed + unboxed fields)

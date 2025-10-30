@@ -56,16 +56,16 @@ gdb_test "print x" \
 # Test polymorphic variant with float data
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_poly_variant (`Green)"
+    "Continue to f_poly_variant call 2 with `Green"
 
 gdb_test "print x" \
-    ".*\\(.*Green 3\\\\.14\\).* : poly_variant @ value.*" \
+    ".*\\(.*Green 3.14\\).* : poly_variant @ value.*" \
     "Print polymorphic variant (`Green 3.14) shows constructor with float data"
 
 # Test polymorphic variant with string data
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_poly_variant (`Yellow)"
+    "Continue to f_poly_variant call 3 with `Yellow"
 
 gdb_test "print x" \
     ".*\\(.*Yellow \\\"test\\\"\\).* : poly_variant @ value.*" \
@@ -91,7 +91,7 @@ gdb_test "print x" \
 # Test open polymorphic variant with data
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_open_poly_variant (`Beta)"
+    "Continue to f_open_poly_variant call 2 with `Beta"
 
 gdb_test "print x" \
     ".*`Beta.*123.* : .* @ value.*" \
@@ -111,7 +111,7 @@ gdb_test "continue" \
 
 # Test record with polymorphic variant field
 gdb_test "print x" \
-    ".*\\{.*variant_field.*=.*\\(C 100\\).*record_field.*=.*\\{.*x.*=.*10.*y.*=.*2\\\\.5.*\\}.*unboxed_field.*=.*#?3\\\\.14.*\\}.* : mixed_combo @ value.*" \
+    ".*\\{.*variant_field.*=.*\\(C 100\\).*record_field.*=.*\\{.*x.*=.*10.*y.*=.*2.5.*\\}.*unboxed_field.*=.*#?3.14.*\\}.* : mixed_combo @ value.*" \
     "Print mixed combo with variant field shows all fields including polymorphic variant"
 
 # Summary: This test verifies that:

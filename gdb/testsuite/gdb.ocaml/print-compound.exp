@@ -68,7 +68,7 @@ gdb_test "print x" \
 # Test empty list
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_list (empty list)"
+    "Continue to f_list call 2 with empty list"
 
 gdb_test "print x" \
     ".*\\\[\\\].* : .* @ .*" \
@@ -94,7 +94,7 @@ gdb_test "print x" \
 # Test None value
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_option (None)"
+    "Continue to f_option call 2 with None"
 
 gdb_test "print x" \
     ".*None.* : .* @ .*" \
@@ -127,7 +127,7 @@ gdb_test "print x" \
 # Test evaluated lazy value (should show actual value)
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_lazy (evaluated)"
+    "Continue to f_lazy call 2 with evaluated value"
 
 gdb_test "print x" \
     ".*\\d+.* : .* lazy_t @ .*" \

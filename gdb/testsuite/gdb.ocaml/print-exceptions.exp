@@ -27,6 +27,12 @@ if {[standard_oxcaml_testfile "datatypes"] == -1} {
     return
 }
 
+# Set reasonable print limits for exception data structures.
+# Exception payloads can contain large lists (1000+ elements) in their 'raw' field.
+# With the element limiting fix in ocaml-lang.c, GDB now properly respects these
+# limits, so we can use moderate values rather than aggressive restrictions.
+gdb_test_no_output "set print elements 100"
+
 # ============================================================================
 # Test Custom Exceptions
 # ============================================================================
@@ -56,7 +62,7 @@ gdb_test "print x" \
 # Test exception with string data
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception_specific (with string)"
+    "Continue to f_exception_specific call 2 with string data"
 
 gdb_test "print x" \
     ".*\\{.*exn.*=.*raw.*=.*\\}.* : exn @ value.*" \
@@ -65,7 +71,7 @@ gdb_test "print x" \
 # Test exception with multiple values
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception_specific (with multiple)"
+    "Continue to f_exception_specific call 3 with multiple values"
 
 gdb_test "print x" \
     ".*\\{.*exn.*=.*raw.*=.*\\}.* : exn @ value.*" \
@@ -74,7 +80,7 @@ gdb_test "print x" \
 # Test exception with record data
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception_specific (with record)"
+    "Continue to f_exception_specific call 4 with record data"
 
 gdb_test "print x" \
     ".*\\{.*exn.*=.*raw.*=.*\\}.* : exn @ value.*" \
@@ -83,7 +89,7 @@ gdb_test "print x" \
 # Test exception with unboxed record data
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception_specific (with unboxed record)"
+    "Continue to f_exception_specific call 5 with unboxed record"
 
 gdb_test "print x" \
     ".*\\{.*exn.*=.*raw.*=.*\\}.* : exn @ value.*" \
@@ -96,7 +102,7 @@ gdb_test "print x" \
 # Test Failure exception
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception_specific (Failure)"
+    "Continue to f_exception_specific call 6 with Failure exception"
 
 gdb_test "print x" \
     ".*\\{.*exn.*=.*raw.*=.*\\}.* : exn @ value.*" \
@@ -105,7 +111,7 @@ gdb_test "print x" \
 # Test Invalid_argument exception
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception_specific (Invalid_argument)"
+    "Continue to f_exception_specific call 7 with Invalid_argument exception"
 
 gdb_test "print x" \
     ".*\\{.*exn.*=.*raw.*=.*\\}.* : exn @ value.*" \
@@ -131,7 +137,7 @@ gdb_test "print x" \
 # Test polymorphic exception with int
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception_poly (with int)"
+    "Continue to f_exception_poly call 2 with int data"
 
 gdb_test "print x" \
     ".*: .* @ value.*" \
@@ -140,7 +146,7 @@ gdb_test "print x" \
 # Test polymorphic exception with string
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception_poly (with string)"
+    "Continue to f_exception_poly call 3 with string data"
 
 gdb_test "print x" \
     ".*: .* @ value.*" \
@@ -149,7 +155,7 @@ gdb_test "print x" \
 # Test polymorphic exception with multiple values
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception_poly (multiple)"
+    "Continue to f_exception_poly call 4 with multiple values"
 
 gdb_test "print x" \
     ".*: .* @ value.*" \
@@ -158,7 +164,7 @@ gdb_test "print x" \
 # Test polymorphic exception with record
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception_poly (record)"
+    "Continue to f_exception_poly call 5 with record data"
 
 gdb_test "print x" \
     ".*: .* @ value.*" \
@@ -167,7 +173,7 @@ gdb_test "print x" \
 # Test polymorphic exception with unboxed
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception_poly (unboxed)"
+    "Continue to f_exception_poly call 6 with unboxed data"
 
 gdb_test "print x" \
     ".*: .* @ value.*" \
@@ -176,7 +182,7 @@ gdb_test "print x" \
 # Test polymorphic exception - polymorphic failure
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception_poly (polymorphic failure)"
+    "Continue to f_exception_poly call 7 with polymorphic failure"
 
 gdb_test "print x" \
     ".*: .* @ value.*" \

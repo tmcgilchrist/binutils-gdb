@@ -80,7 +80,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_simple_lazy (after force)"
+    "Continue to f_simple_lazy call 2 after force"
 
 # Test 7: Lazy computation
 gdb_test "break Test_custom_blocks_dwarf.Test_custom_blocks_dwarf.f_lazy_computation" \
@@ -93,7 +93,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_lazy_computation (after force)"
+    "Continue to f_lazy_computation call 2 after force"
 
 # Test 8: Lazy with captured values
 gdb_test "break Test_custom_blocks_dwarf.Test_custom_blocks_dwarf.f_lazy_closure" \
@@ -115,7 +115,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_int_reference (after update)"
+    "Continue to f_int_reference call 2 after update"
 
 # Test 10: Tuple reference
 gdb_test "break Test_custom_blocks_dwarf.Test_custom_blocks_dwarf.f_tuple_reference" \
@@ -128,7 +128,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_tuple_reference (after update)"
+    "Continue to f_tuple_reference call 2 after update"
 
 # Test 11: List reference
 gdb_test "break Test_custom_blocks_dwarf.Test_custom_blocks_dwarf.f_list_reference" \
@@ -141,7 +141,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_list_reference (after cons)"
+    "Continue to f_list_reference call 2 after cons"
 
 # Test 12: Mutable record
 gdb_test "break Test_custom_blocks_dwarf.Test_custom_blocks_dwarf.f_mutable_record" \
@@ -154,7 +154,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_mutable_record (after updates)"
+    "Continue to f_mutable_record call 2 after updates"
 
 # Test 13: Exceptions
 gdb_test "break Test_custom_blocks_dwarf.Test_custom_blocks_dwarf.f_exception" \
@@ -167,15 +167,15 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception (multi error)"
+    "Continue to f_exception call 2 with multi error"
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception (failure)"
+    "Continue to f_exception call 3 with failure"
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_exception (invalid argument)"
+    "Continue to f_exception call 4 with invalid argument"
 
 # Test 14: Option with closure
 gdb_test "break Test_custom_blocks_dwarf.Test_custom_blocks_dwarf.f_option_closure" \
@@ -197,7 +197,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_result_type (Error)"
+    "Continue to f_result_type call 2 with Error"
 
 # Test 16: First-class module
 gdb_test "break Test_custom_blocks_dwarf.Test_custom_blocks_dwarf.f_first_class_module" \
@@ -237,7 +237,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_mutable_array (after updates)"
+    "Continue to f_mutable_array call 2 after updates"
 
 # Test 20: String buffer
 gdb_test "break Test_custom_blocks_dwarf.Test_custom_blocks_dwarf.f_buffer" \
@@ -268,7 +268,7 @@ gdb_test "continue" \
 
 gdb_test "continue" \
     ".*Breakpoint.*" \
-    "Continue to f_closure_reference (after update)"
+    "Continue to f_closure_reference call 2 after update"
 
 # Test 23: List of closures
 gdb_test "break Test_custom_blocks_dwarf.Test_custom_blocks_dwarf.f_closure_list" \

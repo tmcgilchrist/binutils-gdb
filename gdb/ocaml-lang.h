@@ -135,6 +135,7 @@ extern void ocaml_print_string (struct gdbarch *gdbarch, CORE_ADDR addr,
 
 extern void ocaml_value_print_inner (struct value *val,
 				     struct ui_file *stream, int recurse,
-				     const struct value_print_options *options);
+				     const struct value_print_options *options,
+				     struct type *dwarf_type = nullptr);
 
 #endif /* GDB_OCAML_LANG_H */
