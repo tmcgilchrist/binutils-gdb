@@ -131,7 +131,7 @@ ocaml_print_type (struct type *type, const char *varstring,
 		  struct ui_file *stream, int show, int level,
 		  const struct type_print_options *flags)
 {
-  if (type == nullptr)
+  if (type == NULL)
     {
       c_print_type (type, varstring, stream, show, level, language_ocaml,
 		    flags);
@@ -144,7 +144,7 @@ ocaml_print_type (struct type *type, const char *varstring,
   /* Temporarily replace the type name with the clean version for printing.  */
   const char *original_name = type->name ();
 
-  if (clean_name != nullptr && original_name != nullptr
+  if (clean_name != NULL && original_name != NULL
       && strcmp (clean_name.get (), original_name) != 0)
     {
       /* The name was cleaned up - temporarily set it.  */
@@ -366,7 +366,7 @@ const struct builtin_ocaml_type *
 builtin_ocaml_type (struct gdbarch *gdbarch)
 {
   struct builtin_ocaml_type *result = ocaml_type_data.get (gdbarch);
-  if (result == nullptr)
+  if (result == NULL)
     {
       result = build_ocaml_types (gdbarch);
       ocaml_type_data.set (gdbarch, result);
@@ -413,13 +413,13 @@ ocaml_print_float (double float_val, bool is_unboxed, struct ui_file *stream)
 }
 
 /* Find enum field name by its enumeration value.
-   Returns nullptr if not found. */
+   Returns NULL if not found. */
 
 static const char *
 ocaml_find_enum_name_by_value (struct type *enum_type, LONGEST value)
 {
-  if (enum_type == nullptr || enum_type->code () != TYPE_CODE_ENUM)
-    return nullptr;
+  if (enum_type == NULL || enum_type->code () != TYPE_CODE_ENUM)
+    return NULL;
 
   for (int i = 0; i < enum_type->num_fields (); ++i)
     {
@@ -427,7 +427,7 @@ ocaml_find_enum_name_by_value (struct type *enum_type, LONGEST value)
         return enum_type->field (i).name ();
     }
 
-  return nullptr;
+  return NULL;
 }
 
 /* Check if a type is a pointer or reference type.
@@ -436,7 +436,7 @@ ocaml_find_enum_name_by_value (struct type *enum_type, LONGEST value)
 static bool
 ocaml_type_is_pointer (struct type *type)
 {
-  if (type == nullptr)
+  if (type == NULL)
     return false;
 
   type_code code = type->code ();
@@ -492,6 +492,9 @@ ocaml_read_block_header (struct gdbarch *gdbarch, CORE_ADDR addr,
   if (ptr_size > sizeof (buf))
     return false;
 
+  /* Assert buffer is large enough for safety.  */
+  gdb_assert (ptr_size <= sizeof (buf));
+
   /* Read the header word at (addr - ptr_size).  */
   CORE_ADDR header_addr = addr - ptr_size;
 
@@ -538,6 +541,9 @@ ocaml_read_block_field (struct gdbarch *gdbarch, CORE_ADDR block_addr,
 
   if (ptr_size > sizeof (buf))
     return false;
+
+  /* Assert buffer is large enough for safety.  */
+  gdb_assert (ptr_size <= sizeof (buf));
 
   /* Read the field at block_addr + (field_index * ptr_size).  */
   CORE_ADDR field_addr = block_addr + (field_index * ptr_size);
@@ -631,7 +637,7 @@ ocaml_print_string (struct gdbarch *gdbarch, CORE_ADDR addr,
 static void ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
 			       struct ui_file *stream, int recurse,
 			       const struct value_print_options *options,
-			       struct type *dwarf_type = nullptr);
+			       struct type *dwarf_type = NULL);
 
 /* ========================================================================
    DWARF Type Information Support
@@ -652,18 +658,18 @@ static void ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
    OCaml variant types (sum types) are encoded in DWARF using DW_TAG_variant_part.
    This function extracts the variant_part structure if it exists.
 
-   Returns the variant_part array, or nullptr if the type has no variants.  */
+   Returns the variant_part array, or NULL if the type has no variants.  */
 
 static const gdb::array_view<variant_part> *
 ocaml_get_variant_parts (struct type *type)
 {
-  if (type == nullptr)
-    return nullptr;
+  if (type == NULL)
+    return NULL;
 
   /* Check if this type has variant parts attached as a dynamic property.  */
   dynamic_prop *variant_prop = type->dyn_prop (DYN_PROP_VARIANT_PARTS);
-  if (variant_prop == nullptr)
-    return nullptr;
+  if (variant_prop == NULL)
+    return NULL;
 
   /* After variant type resolution, GDB rewrites the property kind from
      PROP_VARIANT_PARTS to PROP_TYPE and stores the original (unresolved) type.
@@ -677,16 +683,16 @@ ocaml_get_variant_parts (struct type *type)
     {
       /* Variant type has been resolved - get original type with variant_parts.  */
       struct type *original = variant_prop->original_type ();
-      if (original != nullptr)
+      if (original != NULL)
         {
           /* Recursively check the original type for variant_parts.
              This should have PROP_VARIANT_PARTS kind.  */
           dynamic_prop *original_prop = original->dyn_prop (DYN_PROP_VARIANT_PARTS);
-          if (original_prop != nullptr && original_prop->kind () == PROP_VARIANT_PARTS)
+          if (original_prop != NULL && original_prop->kind () == PROP_VARIANT_PARTS)
             return original_prop->variant_parts ();
         }
       /* Original type doesn't have variant_parts - this shouldn't happen.  */
-      return nullptr;
+      return NULL;
     }
 
   /* Normal case - property has PROP_VARIANT_PARTS kind.  */
@@ -694,7 +700,7 @@ ocaml_get_variant_parts (struct type *type)
     return variant_prop->variant_parts ();
 
   /* Unexpected property kind - neither PROP_VARIANT_PARTS nor PROP_TYPE.  */
-  return nullptr;
+  return NULL;
 }
 
 /* Check if this variant_part represents an unboxed variant.
@@ -766,10 +772,9 @@ ocaml_is_unboxed_variant (struct type *type, const variant_part &part)
       for (int i = 0; i < discr_type->num_fields (); ++i)
 	{
 	  const char *enum_name = discr_type->field (i).name ();
-	  if (enum_name != nullptr &&
+	  if (enum_name != NULL &&
 	      (strcmp (enum_name, "Pointer") == 0 || strcmp (enum_name, "Immediate") == 0))
 	    {
-		/* TODO Remove debug printf */
 	      /* Found Pointer/Immediate - this is a regular variant's internal discriminant,
 		 not a true unboxed variant. Return false.  */
 	      return false;
@@ -797,13 +802,13 @@ ocaml_is_unboxed_variant (struct type *type, const variant_part &part)
 static bool
 ocaml_is_variant_struct (struct type *type)
 {
-  if (type == nullptr || type->code () != TYPE_CODE_STRUCT)
+  if (type == NULL || type->code () != TYPE_CODE_STRUCT)
     return false;
 
   /* Check if this type has variant parts - if yes, it's a variant.  */
   const gdb::array_view<variant_part> *parts = ocaml_get_variant_parts (type);
 
-  return (parts != nullptr);
+  return (parts != NULL);
 }
 
 /* Check if a variant should print its fields as a record.
@@ -819,7 +824,7 @@ ocaml_is_variant_struct (struct type *type)
 static bool
 ocaml_variant_has_inline_record (struct type *type, const variant &var)
 {
-  if (type == nullptr)
+  if (type == NULL)
     return false;
 
   /* Count how many fields controlled by this variant have names */
@@ -831,7 +836,7 @@ ocaml_variant_has_inline_record (struct type *type, const variant &var)
 	continue;
 
       const char *field_name = type->field (i).name ();
-      if (field_name != nullptr && field_name[0] != '\0')
+      if (field_name != NULL && field_name[0] != '\0')
 	named_field_count++;
     }
 
@@ -914,7 +919,7 @@ ocaml_read_discriminant_from_value (struct gdbarch *gdbarch, struct value *val,
    Iterates through the variants in the variant_part and returns the first
    one that matches the discriminant value.
 
-   Returns the matching variant, or nullptr if no match found.  */
+   Returns the matching variant, or NULL if no match found.  */
 
 static const variant *
 ocaml_find_matching_variant (const variant_part &part, LONGEST discr_value)
@@ -934,7 +939,7 @@ ocaml_find_matching_variant (const variant_part &part, LONGEST discr_value)
 	return &v;
     }
 
-  return nullptr;
+  return NULL;
 }
 
 /* Get the constructor name for a variant.
@@ -942,7 +947,7 @@ ocaml_find_matching_variant (const variant_part &part, LONGEST discr_value)
    Extracts the name from the DWARF field information associated with
    the variant.
 
-   Returns the constructor name, or nullptr if not available.  */
+   Returns the constructor name, or NULL if not available.  */
 
 static const char *
 ocaml_get_constructor_name (struct type *type, const variant &v)
@@ -961,7 +966,8 @@ ocaml_get_constructor_name (struct type *type, const variant &v)
       return f.name ();
     }
 
-  return nullptr; 		/* TODO Is returning nullptr good practice here? */
+  /* No valid field found - return NULL to indicate no constructor name available.  */
+  return NULL;
 }
 
 /* Check if a type is a record type (structure with named fields).
@@ -975,7 +981,7 @@ ocaml_get_constructor_name (struct type *type, const variant &v)
 static bool
 ocaml_is_record_type (struct type *type)
 {
-  if (type == nullptr)
+  if (type == NULL)
     return false;
 
   /* Records are struct types.  */
@@ -987,7 +993,7 @@ ocaml_is_record_type (struct type *type)
   for (int i = 0; i < type->num_fields (); i++)
     {
       const char *name = type->field (i).name ();
-      if (name != nullptr && name[0] != '\0')
+      if (name != NULL && name[0] != '\0')
 	return true;
     }
 
@@ -1003,7 +1009,7 @@ ocaml_is_record_type (struct type *type)
 static bool
 ocaml_is_tuple_type (struct type *type)
 {
-  if (type == nullptr)
+  if (type == NULL)
     return false;
 
   /* Tuples are struct types.  */
@@ -1011,7 +1017,7 @@ ocaml_is_tuple_type (struct type *type)
     return false;
 
   /* If it has variant parts, it's a variant, not a tuple.  */
-  if (ocaml_get_variant_parts (type) != nullptr)
+  if (ocaml_get_variant_parts (type) != NULL)
     return false;
 
   /* Check if all fields are unnamed.
@@ -1019,7 +1025,7 @@ ocaml_is_tuple_type (struct type *type)
   for (int i = 0; i < type->num_fields (); i++)
     {
       const char *name = type->field (i).name ();
-      if (name != nullptr && name[0] != '\0')
+      if (name != NULL && name[0] != '\0')
 	return false;
     }
 
@@ -1052,27 +1058,27 @@ ocaml_is_tuple_type (struct type *type)
 static bool
 ocaml_is_array_type (struct type *type)
 {
-  if (type == nullptr)
+  if (type == NULL)
     return false;
 
   /* DWARF-based detection: Check if this type resolves to TYPE_CODE_ARRAY.
      OCaml arrays are typedef'd enums that become TYPE_CODE_ARRAY after
      typedef resolution.  */
   struct type *resolved_type = check_typedef (type);
-  if (resolved_type != nullptr && resolved_type->code () == TYPE_CODE_ARRAY)
+  if (resolved_type != NULL && resolved_type->code () == TYPE_CODE_ARRAY)
     return true;
 
   /* HEURISTIC FALLBACK: Check type name for " array" pattern.
      WARNING: This may misidentify non-array types with "array" in their names.
      For accurate detection, ensure DWARF debug info is available.  */
   const char *type_name = type->name ();
-  if (type_name == nullptr)
+  if (type_name == NULL)
     return false;
 
   /* Check if type name contains " array" (may be followed by " @ value").
      We use strstr to find the pattern anywhere in the type name.  */
   const char *array_pos = strstr (type_name, " array");
-  if (array_pos == nullptr)
+  if (array_pos == NULL)
     return false;
 
   /* Make sure it's followed by either end-of-string or " @".  */
@@ -1090,12 +1096,12 @@ ocaml_is_array_type (struct type *type)
 static bool
 ocaml_variant_has_constructors (struct type *type, const char **constructor_names, int count)
 {
-  if (type == nullptr || constructor_names == nullptr || count <= 0)
+  if (type == NULL || constructor_names == NULL || count <= 0)
     return false;
 
   /* Get variant parts from DWARF.  */
   const gdb::array_view<variant_part> *parts = ocaml_get_variant_parts (type);
-  if (parts == nullptr || parts->empty ())
+  if (parts == NULL || parts->empty ())
     return false;
 
   const variant_part &part = (*parts)[0];
@@ -1105,7 +1111,7 @@ ocaml_variant_has_constructors (struct type *type, const char **constructor_name
     return false;
 
   struct type *enum_type = check_typedef (type->field (part.discriminant_index).type ());
-  if (enum_type == nullptr || enum_type->code () != TYPE_CODE_ENUM)
+  if (enum_type == NULL || enum_type->code () != TYPE_CODE_ENUM)
     return false;
 
   /* Check if all required constructor names exist in the enum.  */
@@ -1115,7 +1121,7 @@ ocaml_variant_has_constructors (struct type *type, const char **constructor_name
       for (int j = 0; j < enum_type->num_fields (); j++)
 	{
 	  const char *field_name = enum_type->field (j).name ();
-	  if (field_name != nullptr && strcmp (field_name, constructor_names[i]) == 0)
+	  if (field_name != NULL && strcmp (field_name, constructor_names[i]) == 0)
 	    {
 	      found = true;
 	      break;
@@ -1143,7 +1149,7 @@ ocaml_variant_has_constructors (struct type *type, const char **constructor_name
 static bool
 ocaml_is_list_type (struct type *type)
 {
-  if (type == nullptr)
+  if (type == NULL)
     return false;
 
   /* DWARF-based detection: Check for variant constructors "[]" and "::".  */
@@ -1154,13 +1160,13 @@ ocaml_is_list_type (struct type *type)
   /* HEURISTIC FALLBACK: Check type name for " list" pattern.
      This is less reliable but works when DWARF is incomplete.  */
   const char *type_name = type->name ();
-  if (type_name == nullptr)
+  if (type_name == NULL)
     return false;
 
   /* Check if type name contains " list" (may be followed by " @ value").
      We use strstr to find the pattern anywhere in the type name.  */
   const char *list_pos = strstr (type_name, " list");
-  if (list_pos == nullptr)
+  if (list_pos == NULL)
     return false;
 
   /* Make sure it's followed by either end-of-string or " @".  */
@@ -1171,7 +1177,7 @@ ocaml_is_list_type (struct type *type)
 static bool
 ocaml_is_reference_type (struct type *type)
 {
-  if (type == nullptr)
+  if (type == NULL)
     return false;
 
   /* References must be struct types with exactly one field.  */
@@ -1184,7 +1190,7 @@ ocaml_is_reference_type (struct type *type)
   /* The field must be named "contents".
      This is sufficient to identify references, as this structure is unique to refs.  */
   const char *field_name = type->field (0).name ();
-  if (field_name == nullptr)
+  if (field_name == NULL)
     return false;
 
   return (strcmp (field_name, "contents") == 0);
@@ -1200,7 +1206,7 @@ ocaml_is_reference_type (struct type *type)
    After:  [42]
 
    Returns true if successfully printed, false if no reference info available.  */
-/* TODO Is this idiomatic gdb format? */
+
 static bool
 ocaml_print_reference_with_type (struct value *val, struct type *type,
 				  struct ui_file *stream, int recurse,
@@ -1245,23 +1251,23 @@ ocaml_print_reference_with_type (struct value *val, struct type *type,
    This function extracts the clean, module-qualified typename by removing
    the "@ value" suffix and other OCaml-specific metadata.
 
-   Returns a newly allocated string containing the clean name, or nullptr
+   Returns a newly allocated string containing the clean name, or NULL
    if the type has no name. The caller is responsible for freeing the result.  */
 
 static gdb::unique_xmalloc_ptr<char>
 ocaml_get_qualified_type_name (struct type *type)
 {
-  if (type == nullptr)
-    return nullptr;
+  if (type == NULL)
+    return NULL;
 
   const char *raw_name = type->name ();
-  if (raw_name == nullptr)
-    return nullptr;
+  if (raw_name == NULL)
+    return NULL;
 
   /* Find the "@ value" or "@ " suffix that OCaml compilers add.  */
   const char *at_sign = strstr (raw_name, " @ ");
 
-  if (at_sign != nullptr)
+  if (at_sign != NULL)
     {
       /* Extract the part before " @ ".  */
       size_t len = at_sign - raw_name;
@@ -1291,17 +1297,17 @@ ocaml_get_qualified_type_name (struct type *type)
 static gdb::unique_xmalloc_ptr<char>
 ocaml_get_type_representation (struct type *type)
 {
-  if (type == nullptr)
+  if (type == NULL)
     return make_unique_xstrdup ("value");
 
   const char *raw_name = type->name ();
-  if (raw_name == nullptr)
+  if (raw_name == NULL)
     return make_unique_xstrdup ("value");
 
   /* Find the "@ " suffix that indicates representation.  */
   const char *at_sign = strstr (raw_name, " @ ");
 
-  if (at_sign != nullptr)
+  if (at_sign != NULL)
     {
       /* Extract the part after "@ ".  */
       const char *representation = at_sign + 3; /* Skip " @ " */
@@ -1328,7 +1334,7 @@ ocaml_get_type_representation (struct type *type)
 static bool
 ocaml_is_unboxed_representation (const char *representation)
 {
-  if (representation == nullptr)
+  if (representation == NULL)
     return false;
 
   return (strcmp (representation, "float64") == 0 ||
@@ -1356,7 +1362,7 @@ static bool
 ocaml_is_unboxed_variant (struct type *type)
 {
   const gdb::array_view<variant_part> *parts = ocaml_get_variant_parts (type);
-  if (parts == nullptr || parts->empty ())
+  if (parts == NULL || parts->empty ())
     return false;
 
   const variant_part &part = (*parts)[0];
@@ -1411,7 +1417,7 @@ ocaml_print_unboxed_variant (struct value *val, struct type *type,
   struct gdbarch *gdbarch = type->arch ();
   const gdb::array_view<variant_part> *parts = ocaml_get_variant_parts (type);
 
-  if (parts == nullptr || parts->empty ())
+  if (parts == NULL || parts->empty ())
     return false;
 
   const variant_part &part = (*parts)[0];
@@ -1422,7 +1428,7 @@ ocaml_print_unboxed_variant (struct value *val, struct type *type,
 
   /* Get the constructor name.  */
   const char *constructor_name = ocaml_get_constructor_name (type, var);
-  if (constructor_name == nullptr)
+  if (constructor_name == NULL)
     constructor_name = "<unboxed>";
 
   /* Print the constructor name.  */
@@ -1481,7 +1487,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 {
   /* Get the variant parts from the type.  */
   const gdb::array_view<variant_part> *parts = ocaml_get_variant_parts (type);
-  if (parts == nullptr || parts->empty ())
+  if (parts == NULL || parts->empty ())
     {
       return false;
     }
@@ -1510,7 +1516,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 
       /* Find the matching variant based on discriminant.  */
       const variant *var = ocaml_find_matching_variant (part, discr);
-      if (var == nullptr || var->first_field < 0 || var->first_field >= type->num_fields ())
+      if (var == NULL || var->first_field < 0 || var->first_field >= type->num_fields ())
 	{
 	  gdb_printf (stream, "<invalid variant>");
 	  return true;
@@ -1531,7 +1537,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	{
 	  struct type *discr_type = check_typedef (type->field (part.discriminant_index).type ());
 	  const char *name = ocaml_find_enum_name_by_value (discr_type, discr);
-	  if (name != nullptr)
+	  if (name != NULL)
 	    constructor_name = name;
 	}
 
@@ -1567,7 +1573,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	  const char *type_name = data_type->name ();
 
 	  /* Check if this is ocaml_value type - could be immediate int or block pointer.  */
-	  if (type_name != nullptr && strcmp (type_name, "ocaml_value") == 0)
+	  if (type_name != NULL && strcmp (type_name, "ocaml_value") == 0)
 	    {
 	      /* ocaml_value can be:
 		 1. Immediate int (LSB=1): decode with right shift
@@ -1593,7 +1599,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		     what kind of block it points to. ocaml_print_value() does
 		     runtime type inspection by reading the block header.  */
 		  ocaml_print_value (gdbarch, data_bits, stream, recurse + 1,
-				     options, nullptr);
+				     options, NULL);
 		}
 	      else
 		{
@@ -1625,7 +1631,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	     Look up the enum value in the type's fields to find the name.  */
 	  const char *enum_name = ocaml_find_enum_name_by_value (data_type, data_bits);
 
-	  if (enum_name != nullptr)
+	  if (enum_name != NULL)
 	    {
 	      /* Found the enum value name - print it directly (no # prefix for bools).  */
 	      gdb_puts (enum_name, stream);
@@ -1662,8 +1668,8 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
      2. Find constructor name by matching tag to enum value
      3. If data exists, dereference and print it  */
 
-  const char *constructor_name = nullptr;
-  struct type *enum_type = nullptr;
+  const char *constructor_name = NULL;
+  struct type *enum_type = NULL;
 
   /* Check if this value is a block (pointer) or immediate.
      This determines which enum to use for constructor name lookup.  */
@@ -1704,7 +1710,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	     of the referenced struct's variant_part. Use ocaml_get_variant_parts() to
 	     handle both resolved (PROP_TYPE) and unresolved (PROP_VARIANT_PARTS) types.  */
 	  const gdb::array_view<variant_part> *nested_parts = ocaml_get_variant_parts (target_type);
-	  if (nested_parts != nullptr && !nested_parts->empty ())
+	  if (nested_parts != NULL && !nested_parts->empty ())
 	    {
 	      const variant_part &nested_part = (*nested_parts)[0];
 	      if (nested_part.discriminant_index >= 0 &&
@@ -1717,7 +1723,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	    }
 
 	  /* Fallback to field[0] if no variant_part found. */
-	  if (enum_type == nullptr)
+	  if (enum_type == NULL)
 	    {
 	      struct type *field0_type = check_typedef (target_type->field (0).type ());
 	      if (field0_type->code () == TYPE_CODE_ENUM)
@@ -1727,7 +1733,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
     }
 
   /* For immediate values or if no nested enum found, use parent enum.  */
-  if (enum_type == nullptr)
+  if (enum_type == NULL)
     {
       int max_bitsize = 0;
       int constructor_enum_field = -1;
@@ -1803,16 +1809,16 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
      For immediate values, ref_field=-1 because the resolved type only shows the
      Immediate branch. We need to look in the original unresolved type (or search
      all fields) to find the Pointer branch's reference field. */
-  if (!is_block_value && (enum_type == nullptr || enum_type->num_fields () == 0))
+  if (!is_block_value && (enum_type == NULL || enum_type->num_fields () == 0))
     {
       /* For resolved types (immediate branch), we need to access the original unresolved
          type which has all variant branches including the Pointer branch with ref field.  */
       struct type *search_type = type;
       dynamic_prop *variant_prop = type->dyn_prop (DYN_PROP_VARIANT_PARTS);
-      if (variant_prop != nullptr && variant_prop->kind () == PROP_TYPE)
+      if (variant_prop != NULL && variant_prop->kind () == PROP_TYPE)
 	{
 	  struct type *orig = variant_prop->original_type ();
-	  if (orig != nullptr)
+	  if (orig != NULL)
 	    {
 	      search_type = orig;
 	    }
@@ -1842,7 +1848,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	  if (target_type->code () == TYPE_CODE_STRUCT && target_type->num_fields () > 0)
 	    {
 	      const gdb::array_view<variant_part> *target_parts = ocaml_get_variant_parts (target_type);
-	      if (target_parts != nullptr && !target_parts->empty ())
+	      if (target_parts != NULL && !target_parts->empty ())
 		{
 		  const variant_part &target_part = (*target_parts)[0];
 		  if (target_part.discriminant_index >= 0 &&
@@ -1865,7 +1871,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 
   /* Check if this is a polymorphic variant enum */
   bool is_poly_variant_enum = false;
-  if (enum_type != nullptr && enum_type->num_fields () > 0)
+  if (enum_type != NULL && enum_type->num_fields () > 0)
     {
       const char *first_name = enum_type->field (0).name ();
       if (first_name && first_name[0] == '`')
@@ -1875,7 +1881,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
   /* For polymorphic variant blocks, the discriminant (block tag) is not meaningful.
      Instead, field[0] of the block contains the hash. Read it if this is a block. */
   char poly_hash_name[64] = {0};
-  if (is_poly_variant_enum && is_block_value && constructor_name == nullptr)
+  if (is_poly_variant_enum && is_block_value && constructor_name == NULL)
     {
       CORE_ADDR block_addr = (CORE_ADDR) val_raw;
       LONGEST field0_val;
@@ -1884,13 +1890,13 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	  /* field0_val is the hash as an immediate value (raw with LSB=1).
 	     Try to match it against enum values. */
 	  const char *hash_name = ocaml_find_enum_name_by_value (enum_type, field0_val);
-	  if (hash_name != nullptr)
+	  if (hash_name != NULL)
 	    constructor_name = hash_name;
 
 	  /* If no match found in DWARF, format hash for display.
 	     NOTE: OxCaml's DWARF may not include all poly variant constructors in the enum,
 	     so we fall back to showing the hash value. */
-	  if (constructor_name == nullptr)
+	  if (constructor_name == NULL)
 	    {
 	      snprintf (poly_hash_name, sizeof(poly_hash_name), "`#0x%lx", (unsigned long)field0_val);
 	      constructor_name = poly_hash_name;
@@ -1899,7 +1905,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
     }
 
   /* Look up constructor name from enum using discriminant (for non-poly-variant or immediates).  */
-  if (constructor_name == nullptr && enum_type != nullptr)
+  if (constructor_name == NULL && enum_type != NULL)
     {
       /* For immediate nested variants with Pointer branch enum (from fallback above),
          the discriminant is the immediate value, but enum values are block tags.
@@ -1954,7 +1960,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	}
     }
 
-  if (constructor_name == nullptr || constructor_name[0] == '\0')
+  if (constructor_name == NULL || constructor_name[0] == '\0')
     constructor_name = "<unknown>";
 
   /* Check if this constructor has data (block pointer).
@@ -1970,7 +1976,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
       /* Try to extract field types from DWARF for proper value printing.
          The target_type contains the variant data fields (starting at field 1,
          since field 0 is the discriminant enum).  */
-      struct type *target_type = nullptr;
+      struct type *target_type = NULL;
       if (ref_field >= 0)
 	{
 	  struct type *ref_type = check_typedef (type->field (ref_field).type ());
@@ -1992,7 +1998,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 
 	     In this case, print the block as a single record instead of
 	     multiple simple values.  */
-	  if (target_type != nullptr && target_type->code () == TYPE_CODE_STRUCT &&
+	  if (target_type != NULL && target_type->code () == TYPE_CODE_STRUCT &&
 	      num_fields > 1)
 	    {
 	      /* Count non-discriminant data fields in DWARF.
@@ -2000,7 +2006,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	      int dwarf_data_fields = 0;
 	      for (int i = 1; i < target_type->num_fields (); ++i)
 		{
-		  if (target_type->field (i).name () != nullptr)
+		  if (target_type->field (i).name () != NULL)
 		    dwarf_data_fields++;
 		}
 
@@ -2049,19 +2055,19 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	     Use DWARF variant_parts to find which fields are active for this discriminant,
 	     then check if those fields have names (indicating an inline record).  */
 	  bool print_as_record = false;
-	  const variant *active_var = nullptr;
+	  const variant *active_var = NULL;
 
-	  if (target_type != nullptr && target_type->code () == TYPE_CODE_STRUCT && num_fields > 1)
+	  if (target_type != NULL && target_type->code () == TYPE_CODE_STRUCT && num_fields > 1)
 	    {
 	      /* Get the variant_parts from target_type to find active fields.
 	         Note: target_type is the struct containing the variant's data fields.  */
 	      const gdb::array_view<variant_part> *type_parts = ocaml_get_variant_parts (target_type);
-	      if (type_parts != nullptr && !type_parts->empty ())
+	      if (type_parts != NULL && !type_parts->empty ())
 		{
 		  const variant_part &type_part = (*type_parts)[0];
 		  active_var = ocaml_find_matching_variant (type_part, discr);
 
-		  if (active_var != nullptr)
+		  if (active_var != NULL)
 		    {
 		      /* Check if the active variant has multiple named fields (inline record) */
 		      print_as_record = ocaml_variant_has_inline_record (target_type, *active_var);
@@ -2091,16 +2097,16 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		  /* Create a value from the raw OCaml field and print it.
 		     Try to use the proper DWARF field type if available (field index i+1
 		     since field 0 is the discriminant enum).  */
-		  struct type *field_type = nullptr;
+		  struct type *field_type = NULL;
 		  bool use_typedef_type = false;
 
-		  if (target_type != nullptr && target_type->code () == TYPE_CODE_STRUCT)
+		  if (target_type != NULL && target_type->code () == TYPE_CODE_STRUCT)
 		    {
 		      /* Map OCaml field index to DWARF field index.
 		         If we have active variant info, use its field range.
 		         Otherwise fall back to sequential mapping (i+1).  */
 		      int dwarf_field_index;
-		      if (active_var != nullptr)
+		      if (active_var != NULL)
 			{
 			  /* Active variant: OCaml field i maps to first_field + i */
 			  dwarf_field_index = active_var->first_field + (i - start_field);
@@ -2115,7 +2121,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		      if (print_as_record && dwarf_field_index < target_type->num_fields ())
 			{
 			  const char *field_name = target_type->field (dwarf_field_index).name ();
-			  if (field_name != nullptr && field_name[0] != '\0')
+			  if (field_name != NULL && field_name[0] != '\0')
 			    {
 			      if (i > start_field)
 				gdb_puts ("; ", stream);
@@ -2149,7 +2155,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		      /* Special handling for unboxed float fields in variant inline records.
 		         Unboxed floats are stored as raw float bits in the OCaml block,
 		         not as OCaml values. DWARF identifies these as TYPE_CODE_FLT.  */
-		      if (field_type != nullptr && field_type->code () == TYPE_CODE_FLT)
+		      if (field_type != NULL && field_type->code () == TYPE_CODE_FLT)
 			{
 			  double float_val;
 
@@ -2181,27 +2187,27 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 
 		  /* Check for empty list BEFORE falling back to pointer type.
 		     This must be done while we still have the original DWARF field type.  */
-		  if (!ocaml_is_block (field_val) && field_type != nullptr)
+		  if (!ocaml_is_block (field_val) && field_type != NULL)
 		    {
 		      const char *type_name = field_type->name ();
 
 		      /* If this is a typedef without a name, try resolving it or checking target.  */
-		      if (type_name == nullptr && field_type->code () == TYPE_CODE_TYPEDEF)
+		      if (type_name == NULL && field_type->code () == TYPE_CODE_TYPEDEF)
 			{
 			  struct type *resolved = check_typedef (field_type);
-			  if (resolved != nullptr)
+			  if (resolved != NULL)
 			    type_name = resolved->name ();
 
 			  /* Also check target_type.  */
-			  if (type_name == nullptr)
+			  if (type_name == NULL)
 			    {
 			      struct type *target = field_type->target_type ();
-			      if (target != nullptr)
+			      if (target != NULL)
 				type_name = target->name ();
 			    }
 			}
 
-		      if (type_name != nullptr && ocaml_is_list_type (field_type))
+		      if (type_name != NULL && ocaml_is_list_type (field_type))
 			{
 			  gdb_puts ("[]", stream);
 			  continue;
@@ -2211,10 +2217,10 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		         and the value is immediate, it's likely an empty constructor like [] or None.
 		         Since we can't determine the type from DWARF (OxCaml doesn't include field
 		         type names), we print [] as a best guess for recursive list types.  */
-		      if (type_name == nullptr && field_type->code () == TYPE_CODE_TYPEDEF)
+		      if (type_name == NULL && field_type->code () == TYPE_CODE_TYPEDEF)
 			{
 			  struct type *resolved = check_typedef (field_type);
-			  if (resolved != nullptr && resolved->code () == TYPE_CODE_STRUCT)
+			  if (resolved != NULL && resolved->code () == TYPE_CODE_STRUCT)
 			    {
 			      /* This is likely an empty list or option. Print [] as a guess.  */
 			      gdb_puts ("[]", stream);
@@ -2224,7 +2230,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		    }
 
 		  /* Fall back to pointer type if no field type found.  */
-		  if (field_type == nullptr)
+		  if (field_type == NULL)
 		    field_type = builtin_type (gdbarch)->builtin_data_ptr;
 
 		  struct value *field_value;
@@ -2274,7 +2280,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	      struct type *target = field_type_orig->target_type ();
 	      /* Follow the typedef chain, checking each level for variant_parts.
 		 variant_parts might be on any typedef in the chain, not just the final type. */
-	      while (target != nullptr && !is_variant)
+	      while (target != NULL && !is_variant)
 		{
 		  /* Check if this level has variant_parts */
 		  is_variant = ocaml_is_variant_struct (target);
@@ -2301,13 +2307,13 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 			{
 			  const char *fname = ftype_resolved->field (j).name ();
 			  struct type *ftype = ftype_resolved->field (j).type ();
-			  if (fname == nullptr || fname[0] == '\0')
+			  if (fname == NULL || fname[0] == '\0')
 			    {
 			      looks_like_record = false;
 			      break;
 			    }
 			  /* If there's an enum field, it might be a discriminant */
-			  if (ftype != nullptr && check_typedef (ftype)->code () == TYPE_CODE_ENUM)
+			  if (ftype != NULL && check_typedef (ftype)->code () == TYPE_CODE_ENUM)
 			    {
 			      looks_like_record = false;
 			      break;
@@ -2401,7 +2407,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 static bool
 ocaml_print_with_type (struct value *val, struct ui_file *stream, int recurse,
 		       const struct value_print_options *options,
-		       struct type *dwarf_type = nullptr);
+		       struct type *dwarf_type = NULL);
 
 /* Print an unboxed OCaml record value using DWARF type information.
 
@@ -2430,7 +2436,7 @@ ocaml_print_unboxed_record (struct value *val, struct type *type,
   /* Print as a record with the single field.  */
   gdb_puts ("{", stream);
 
-  if (field_name != nullptr && field_name[0] != '\0')
+  if (field_name != NULL && field_name[0] != '\0')
     gdb_printf (stream, "%s = ", field_name);
 
   /* Get the field value with DWARF type information preserved.
@@ -2497,7 +2503,7 @@ ocaml_print_record_with_type (struct value *val, struct type *type,
       const char *field_name = f.name ();
 
       /* Skip fields without names (shouldn't happen for records).  */
-      if (field_name == nullptr || field_name[0] == '\0')
+      if (field_name == NULL || field_name[0] == '\0')
 	continue;
 
       /* Stop printing if we've reached the limit.  */
@@ -2537,7 +2543,7 @@ ocaml_print_record_with_type (struct value *val, struct type *type,
 
       /* Check if field name matches pattern: *.#\d+ (e.g., f.#0, f.#1).  */
       const char *dot_hash = strstr (field_name, ".#");
-      if (dot_hash != nullptr && field_type->code () == TYPE_CODE_INT)
+      if (dot_hash != NULL && field_type->code () == TYPE_CODE_INT)
 	{
 	  /* Verify the part after .# is a digit.  */
 	  const char *p = dot_hash + 2;
@@ -2549,7 +2555,7 @@ ocaml_print_record_with_type (struct value *val, struct type *type,
 	         - Otherwise: assume it's unboxed int64# (needs # prefix and suffix) */
 	      const char *type_name = field_type->name ();
 
-	      if (type_name != nullptr && strcmp (type_name, "ocaml_value") == 0)
+	      if (type_name != NULL && strcmp (type_name, "ocaml_value") == 0)
 		{
 		  /* Regular OCaml value field - pass DWARF type for nested type resolution.  */
 		  ocaml_value_print_inner (field_val, stream, recurse + 1, options, field_type);
@@ -2707,12 +2713,12 @@ ocaml_print_array_with_type (struct value *val, struct type *type,
   /* Extract the array element type from DWARF type information.
      Type hierarchy: typedef → reference → array → element_type
      This allows array elements to print as proper OCaml values (e.g., 'a' instead of 97).  */
-  struct type *elem_type = nullptr;
+  struct type *elem_type = NULL;
 
   if (typedef_resolved->code () == TYPE_CODE_REF)
     {
       struct type *array_type = typedef_resolved->target_type ();
-      if (array_type != nullptr)
+      if (array_type != NULL)
 	{
 	  array_type = check_typedef (array_type);
 	  if (array_type->code () == TYPE_CODE_ARRAY)
@@ -2743,7 +2749,7 @@ ocaml_print_array_with_type (struct value *val, struct type *type,
 	  /* Create a value with the proper element type for correct OCaml printing.
 	     If we successfully extracted the element type from DWARF, use it.
 	     Otherwise fall back to generic pointer type.  */
-	  struct type *value_type = (elem_type != nullptr)
+	  struct type *value_type = (elem_type != NULL)
 	    ? elem_type
 	    : builtin_type (gdbarch)->builtin_data_ptr;
 
@@ -2836,9 +2842,9 @@ ocaml_print_with_type (struct value *val, struct ui_file *stream, int recurse,
   /* Prioritize DWARF type information over value's type.
      This is essential for nested variants where the value has pointer type
      but DWARF type contains typedef→struct with variant_parts.  */
-  struct type *type = (dwarf_type != nullptr) ? dwarf_type : val->type ();
+  struct type *type = (dwarf_type != NULL) ? dwarf_type : val->type ();
 
-  if (type == nullptr)
+  if (type == NULL)
     {
       return false;
     }
@@ -2874,7 +2880,7 @@ ocaml_print_with_type (struct value *val, struct ui_file *stream, int recurse,
      Exception types (exn) will have variant_part information and will be
      printed with their constructor names automatically.  */
   const gdb::array_view<variant_part> *vparts = ocaml_get_variant_parts (type);
-  if (vparts != nullptr)
+  if (vparts != NULL)
     {
       return ocaml_print_variant_with_type (val, type, stream, recurse, options);
     }
@@ -2994,7 +3000,7 @@ ocaml_print_list (struct gdbarch *gdbarch, LONGEST list_val,
     }
 
   /* Respect print_max limit for list elements.  */
-  if (elements_printed != nullptr
+  if (elements_printed != NULL
       && *elements_printed >= options->print_max)
     {
       gdb_puts ("...", stream);
@@ -3042,7 +3048,7 @@ ocaml_print_list (struct gdbarch *gdbarch, LONGEST list_val,
   ocaml_print_value (gdbarch, head, stream, recurse + 1, options);
 
   /* Increment element count after printing head.  */
-  if (elements_printed != nullptr)
+  if (elements_printed != NULL)
     (*elements_printed)++;
 
   gdb_puts (", ", stream);
@@ -3081,8 +3087,8 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
 		   const struct value_print_options *options,
 		   struct type *dwarf_type)
 {
-  /* Prevent excessive recursion.  */
-  if (recurse > 10)
+  /* Prevent excessive recursion using user's max_depth setting.  */
+  if (options->max_depth > 0 && recurse >= options->max_depth)
     {
       gdb_puts ("...", stream);
       return;
@@ -3100,7 +3106,7 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
      output for integer values that coincide with bool encodings.  */
 
   /* Check if we have DWARF type information to guide interpretation.  */
-  if (dwarf_type != nullptr)
+  if (dwarf_type != NULL)
     {
       struct type *base_type = check_typedef (dwarf_type);
 
@@ -3223,7 +3229,7 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
 	     DWARF-based detection (primary): Check if DWARF type information
 	     indicates this is a list type (has constructors "[]" and "::").
 	     This is more reliable than runtime pattern matching.  */
-	  if (dwarf_type != nullptr && ocaml_is_list_type (dwarf_type))
+	  if (dwarf_type != NULL && ocaml_is_list_type (dwarf_type))
 	    {
 	      /* DWARF confirms this is a list type. Print as list.  */
 	      unsigned int elements_printed = 0;
@@ -3298,22 +3304,22 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
 	    has_data = true;
 
 	  /* DWARF-based detection: Check type name for int32, int64, nativeint.  */
-	  if (dwarf_type != nullptr && has_data)
+	  if (dwarf_type != NULL && has_data)
 	    {
 	      const char *type_name = dwarf_type->name ();
-	      if (type_name != nullptr)
+	      if (type_name != NULL)
 		{
-		  if (strstr (type_name, "int32") != nullptr)
+		  if (strstr (type_name, "int32") != NULL)
 		    {
 		      gdb_printf (stream, "%ldl", (long)data_field);
 		      return;
 		    }
-		  else if (strstr (type_name, "int64") != nullptr)
+		  else if (strstr (type_name, "int64") != NULL)
 		    {
 		      gdb_printf (stream, "%ldL", (long)data_field);
 		      return;
 		    }
-		  else if (strstr (type_name, "nativeint") != nullptr)
+		  else if (strstr (type_name, "nativeint") != NULL)
 		    {
 		      gdb_printf (stream, "%ldn", (long)data_field);
 		      return;
@@ -3452,12 +3458,12 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 
   /* If DWARF type information was provided, use it to check for variants.
      This is more reliable than runtime heuristics when typedef chains hide variant_parts. */
-  struct type *dwarf_variant_type = nullptr;
-  if (dwarf_type != nullptr)
+  struct type *dwarf_variant_type = NULL;
+  if (dwarf_type != NULL)
     {
       /* Follow typedef chain to find variant_parts */
       struct type *current = dwarf_type;
-      while (current != nullptr)
+      while (current != NULL)
         {
           if (current->code () == TYPE_CODE_TYPEDEF)
             {
@@ -3491,7 +3497,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
       val = coerce_ref (val);
       type = check_typedef (val->type ());
       /* If the dereferenced type has no name, use the original reference type's name.  */
-      if (type->name () == nullptr && original_type->name () != nullptr)
+      if (type->name () == NULL && original_type->name () != NULL)
 	{
 	  /* The underlying type is anonymous, but the reference type has the name.
 	     We'll use original_type for name lookups but type for structure analysis.  */
@@ -3525,7 +3531,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
   struct type *typedef_type = val->type ();
   gdb::unique_xmalloc_ptr<char> type_name_for_exn = ocaml_get_qualified_type_name (typedef_type);
 
-  if (type->code () == TYPE_CODE_STRUCT && type_name_for_exn != nullptr &&
+  if (type->code () == TYPE_CODE_STRUCT && type_name_for_exn != NULL &&
       (strcmp (type_name_for_exn.get (), "exn") == 0 ||
        strncmp (type_name_for_exn.get (), "exn ", 4) == 0))
     {
@@ -3556,7 +3562,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 	      if (exn_field_type->num_fields () == 1)
 		{
 		  const char *field_name = exn_field_type->field (0).name ();
-		  bool is_reference = (field_name == nullptr ||
+		  bool is_reference = (field_name == NULL ||
 				       field_name[0] == '\0' ||
 				       strcmp (field_name, "contents") == 0);
 		  if (is_reference)
@@ -3646,7 +3652,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 
       /* Add type annotation.  */
       gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (typedef_type);
-      if (representation != nullptr)
+      if (representation != NULL)
 	gdb_printf (stream, " : %s @ %s", type_name_for_exn.get (), representation.get ());
 
       return;
@@ -3671,7 +3677,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 	  /* Add type annotation.  */
 	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (original_val_type);
 	  gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (original_val_type);
-	  if (type_name != nullptr && representation != nullptr)
+	  if (type_name != NULL && representation != NULL)
 	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
 
 	  return;
@@ -3691,7 +3697,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (original_val_type);
 	  gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (original_val_type);
 
-	  if (type_name != nullptr && representation != nullptr)
+	  if (type_name != NULL && representation != NULL)
 	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
 
 	  return;
@@ -3701,7 +3707,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
   /* Try DWARF-based printing first if type information is available.
      This handles variants, records, and other structured types.
      Prioritize dwarf_type parameter over value type for nested variants. */
-  struct type *print_type = (dwarf_variant_type != nullptr) ? dwarf_variant_type : type;
+  struct type *print_type = (dwarf_variant_type != NULL) ? dwarf_variant_type : type;
   if (print_type->code () == TYPE_CODE_STRUCT || TYPE_HAS_VARIANT_PARTS (print_type))
     {
       /* Pass print_type to ocaml_print_with_type() to enable DWARF-aware variant detection.
@@ -3714,7 +3720,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (original_val_type);
 	  gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (original_val_type);
 
-	  if (type_name != nullptr && representation != nullptr)
+	  if (type_name != NULL && representation != NULL)
 	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
 
 	  return;
@@ -3756,7 +3762,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 	  if (recurse == 0)
 	    {
 	      gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (typedef_type);
-	      if (type_name != nullptr)
+	      if (type_name != NULL)
 		gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
 	    }
 
@@ -3772,10 +3778,10 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
       /* Append type annotation (only for top-level values).  */
       if (recurse == 0)
 	{
-	  struct type *name_type = (type->name () != nullptr) ? type : original_type;
+	  struct type *name_type = (type->name () != NULL) ? type : original_type;
 	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (name_type);
 
-	  if (type_name != nullptr)
+	  if (type_name != NULL)
 	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
 	}
 
@@ -3812,7 +3818,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 
 	  /* Append type annotation.  */
 	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (typedef_type);
-	  if (type_name != nullptr)
+	  if (type_name != NULL)
 	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
 
 	  return;
@@ -3823,7 +3829,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 	  c_value_print_inner (val, stream, recurse, options);
 
 	  gdb::unique_xmalloc_ptr<char> type_name = ocaml_get_qualified_type_name (typedef_type);
-	  if (type_name != nullptr)
+	  if (type_name != NULL)
 	    gdb_printf (stream, " : %s @ %s", type_name.get (), representation.get ());
 
 	  return;
@@ -3840,6 +3846,6 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
   gdb::unique_xmalloc_ptr<char> type_name_for_annotation = ocaml_get_qualified_type_name (typedef_type_for_annotation);
   gdb::unique_xmalloc_ptr<char> representation = ocaml_get_type_representation (typedef_type_for_annotation);
 
-  if (type_name_for_annotation != nullptr && representation != nullptr)
+  if (type_name_for_annotation != NULL && representation != NULL)
     gdb_printf (stream, " : %s @ %s", type_name_for_annotation.get (), representation.get ());
 }
