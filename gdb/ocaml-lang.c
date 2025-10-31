@@ -385,6 +385,64 @@ builtin_ocaml_type (struct gdbarch *gdbarch)
    This allows OCaml's garbage collector to distinguish pointers from ints
    without requiring separate type information at runtime.  */
 
+/* Print an OCaml float value with proper formatting.
+   Whole numbers print with .0 suffix (e.g., 1.0 not 1).
+   Negative values and unboxed floats are handled appropriately. */
+
+static void
+ocaml_print_float (double float_val, bool is_unboxed, struct ui_file *stream)
+{
+  const char *prefix = is_unboxed ? "#" : "";
+  bool is_whole = (float_val == (double)(long long)float_val &&
+                   float_val >= LLONG_MIN && float_val <= LLONG_MAX);
+
+  if (float_val < 0)
+    {
+      if (is_whole)
+        gdb_printf (stream, "-%s%.1f", prefix, -float_val);
+      else
+        gdb_printf (stream, "-%s%g", prefix, -float_val);
+    }
+  else
+    {
+      if (is_whole)
+        gdb_printf (stream, "%s%.1f", prefix, float_val);
+      else
+        gdb_printf (stream, "%s%g", prefix, float_val);
+    }
+}
+
+/* Find enum field name by its enumeration value.
+   Returns nullptr if not found. */
+
+static const char *
+ocaml_find_enum_name_by_value (struct type *enum_type, LONGEST value)
+{
+  if (enum_type == nullptr || enum_type->code () != TYPE_CODE_ENUM)
+    return nullptr;
+
+  for (int i = 0; i < enum_type->num_fields (); ++i)
+    {
+      if (enum_type->field (i).loc_enumval () == value)
+        return enum_type->field (i).name ();
+    }
+
+  return nullptr;
+}
+
+/* Check if a type is a pointer or reference type.
+   Returns true if the type code is TYPE_CODE_REF or TYPE_CODE_PTR. */
+
+static bool
+ocaml_type_is_pointer (struct type *type)
+{
+  if (type == nullptr)
+    return false;
+
+  type_code code = type->code ();
+  return (code == TYPE_CODE_REF || code == TYPE_CODE_PTR);
+}
+
 /* Check if a value is an immediate integer (LSB = 1).  */
 
 bool
@@ -684,7 +742,7 @@ ocaml_is_unboxed_variant (struct type *type, const variant_part &part)
       struct type *field_type = check_typedef (f.type ());
 
       /* Check for explicit pointer/reference types.  */
-      if (field_type->code () == TYPE_CODE_REF || field_type->code () == TYPE_CODE_PTR)
+      if (ocaml_type_is_pointer (field_type))
 	{
 	  /* Found a reference/pointer field, so this is NOT an unboxed variant.
 	     It's a regular variant with a bit-level discriminant.  */
@@ -914,7 +972,7 @@ ocaml_get_constructor_name (struct type *type, const variant &v)
 
    Returns true if this appears to be a record type.  */
 
-static bool __attribute__((unused))
+static bool
 ocaml_is_record_type (struct type *type)
 {
   if (type == nullptr)
@@ -942,7 +1000,7 @@ ocaml_is_record_type (struct type *type)
 
    Returns true if this appears to be a tuple type.  */
 
-static bool __attribute__((unused))
+static bool
 ocaml_is_tuple_type (struct type *type)
 {
   if (type == nullptr)
@@ -966,43 +1024,6 @@ ocaml_is_tuple_type (struct type *type)
     }
 
   return true;
-}
-
-/* Check if a type is an OCaml exception type.
-
-   OCaml exceptions are similar to variants but represent the `exn` type.
-   They're declared with the `exception` keyword:
-
-     exception Simple_exception
-     exception With_payload of int
-
-   At runtime and in DWARF, exceptions are represented identically to variants
-   with DW_TAG_variant_part. The existing variant printing infrastructure
-   handles them automatically.
-
-   Detection: Check if the type name is "exn" or contains exception-related
-   naming conventions.  */
-/* TODO Is this used anywhere? Duplicate code */
-__attribute__((unused)) static bool
-ocaml_is_exception_type (struct type *type)
-{
-  if (type == nullptr)
-    return false;
-
-  const char *type_name = type->name ();
-  if (type_name == nullptr)
-    return false;
-
-  /* Check if this is the universal exception type "exn".  */
-  if (strcmp (type_name, "exn") == 0)
-    return true;
-
-  /* Check if this is a specific exception type.
-     OCaml compilers may encode exception types with special naming.  */
-  if (strstr (type_name, "exception") != nullptr)
-    return true;
-
-  return false;
 }
 
 /* Check if a type is an OCaml reference type.
@@ -1432,17 +1453,9 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
       if (part.discriminant_index >= 0 && part.discriminant_index < type->num_fields ())
 	{
 	  struct type *discr_type = check_typedef (type->field (part.discriminant_index).type ());
-	  if (discr_type->code () == TYPE_CODE_ENUM)
-	    {
-	      for (int i = 0; i < discr_type->num_fields (); ++i)
-		{
-		  if (discr_type->field (i).loc_enumval () == discr)
-		    {
-		      constructor_name = discr_type->field (i).name ();
-		      break;
-		    }
-		}
-	    }
+	  const char *name = ocaml_find_enum_name_by_value (discr_type, discr);
+	  if (name != nullptr)
+	    constructor_name = name;
 	}
 
       /* Print the constructor name and unboxed data.  */
@@ -1460,26 +1473,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	      double float_val;
 	      /* Reconstruct full 64 bits for IEEE 754 double.  */
 	      memcpy (&float_val, &data_bits, sizeof (double));
-
-	      /* OCaml syntax requires decimal point to distinguish float from int.
-		 Use %.1f for whole numbers to ensure .0 suffix.  */
-	      if (float_val == (double)(long long)float_val &&
-		  float_val >= LLONG_MIN && float_val <= LLONG_MAX)
-		{
-		  /* Whole number - use %.1f to ensure .0 suffix.  */
-		  if (float_val < 0)
-		    gdb_printf (stream, "-#%.1f", -float_val);
-		  else
-		    gdb_printf (stream, "#%.1f", float_val);
-		}
-	      else
-		{
-		  /* Non-whole number - use %g for compact representation.  */
-		  if (float_val < 0)
-		    gdb_printf (stream, "-#%g", -float_val);
-		  else
-		    gdb_printf (stream, "#%g", float_val);
-		}
+	      ocaml_print_float (float_val, true, stream);
 	    }
 	  else if (data_type->length () == 4)
 	    {
@@ -1487,23 +1481,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	      uint32_t float32_bits = (uint32_t)(data_bits & 0xFFFFFFFF);
 	      float float_val;
 	      memcpy (&float_val, &float32_bits, sizeof (float));
-
-	      /* Use %.1f for whole numbers to ensure .0 suffix.  */
-	      if (float_val == (float)(long long)float_val &&
-		  float_val >= LLONG_MIN && float_val <= LLONG_MAX)
-		{
-		  if (float_val < 0)
-		    gdb_printf (stream, "-#%.1f", -float_val);
-		  else
-		    gdb_printf (stream, "#%.1f", float_val);
-		}
-	      else
-		{
-		  if (float_val < 0)
-		    gdb_printf (stream, "-#%g", -float_val);
-		  else
-		    gdb_printf (stream, "#%g", float_val);
-		}
+	      ocaml_print_float ((double)float_val, true, stream);
 	    }
 	}
       else if (data_type->code () == TYPE_CODE_INT)
@@ -1568,15 +1546,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	{
 	  /* Handle enum types (e.g., bool encoded as enum {false = 1, true = 3}).
 	     Look up the enum value in the type's fields to find the name.  */
-	  const char *enum_name = nullptr;
-	  for (int i = 0; i < data_type->num_fields (); ++i)
-	    {
-	      if (data_type->field (i).loc_enumval () == data_bits)
-		{
-		  enum_name = data_type->field (i).name ();
-		  break;
-		}
-	    }
+	  const char *enum_name = ocaml_find_enum_name_by_value (data_type, data_bits);
 
 	  if (enum_name != nullptr)
 	    {
@@ -1633,7 +1603,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
     {
       const field &f = type->field (i);
       struct type *field_type = check_typedef (f.type ());
-      if (field_type->code () == TYPE_CODE_REF || field_type->code () == TYPE_CODE_PTR)
+      if (ocaml_type_is_pointer (field_type))
 	{
 	  ref_field = i;
 	  break;
@@ -1778,7 +1748,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	  for (int i = 0; i < search_type->num_fields (); ++i)
 	    {
 	      struct type *field_type = check_typedef (search_type->field (i).type ());
-	      if (field_type->code () == TYPE_CODE_REF || field_type->code () == TYPE_CODE_PTR)
+	      if (ocaml_type_is_pointer (field_type))
 		{
 		  search_ref_field = i;
 		  break;
@@ -1836,18 +1806,9 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	{
 	  /* field0_val is the hash as an immediate value (raw with LSB=1).
 	     Try to match it against enum values. */
-	  if (enum_type != nullptr)
-	    {
-	      for (int i = 0; i < enum_type->num_fields (); ++i)
-		{
-		  LONGEST enum_value = enum_type->field (i).loc_enumval ();
-		  if (enum_value == field0_val)
-		    {
-		      constructor_name = enum_type->field (i).name ();
-		      break;
-		    }
-		}
-	    }
+	  const char *hash_name = ocaml_find_enum_name_by_value (enum_type, field0_val);
+	  if (hash_name != nullptr)
+	    constructor_name = hash_name;
 
 	  /* If no match found in DWARF, format hash for display.
 	     NOTE: OxCaml's DWARF may not include all poly variant constructors in the enum,
@@ -2135,24 +2096,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 			    }
 
 			  /* Print unboxed float with # prefix and proper .0 suffix.  */
-			  if (float_val == (double)(long long)float_val &&
-			      float_val >= LLONG_MIN && float_val <= LLONG_MAX)
-			    {
-			      /* Whole number: use %.1f to get .0 suffix.  */
-			      if (float_val < 0)
-				gdb_printf (stream, "-#%.1f", -float_val);
-			      else
-				gdb_printf (stream, "#%.1f", float_val);
-			    }
-			  else
-			    {
-			      /* Non-whole number: use %g for compact representation.  */
-			      if (float_val < 0)
-				gdb_printf (stream, "-#%g", -float_val);
-			      else
-				gdb_printf (stream, "#%g", float_val);
-			    }
-
+			  ocaml_print_float (float_val, true, stream);
 			  continue;  /* Skip regular field value printing.  */
 			}
 
@@ -2276,10 +2220,10 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 			 If any fields are unnamed or if the struct has an enum field
 			 (discriminant), it might be a variant that we failed to detect. */
 		      bool looks_like_record = true;
-		      for (int i = 0; i < ftype_resolved->num_fields (); i++)
+		      for (int j = 0; j < ftype_resolved->num_fields (); j++)
 			{
-			  const char *fname = ftype_resolved->field (i).name ();
-			  struct type *ftype = ftype_resolved->field (i).type ();
+			  const char *fname = ftype_resolved->field (j).name ();
+			  struct type *ftype = ftype_resolved->field (j).type ();
 			  if (fname == nullptr || fname[0] == '\0')
 			    {
 			      looks_like_record = false;
@@ -2587,24 +2531,7 @@ ocaml_print_record_with_type (struct value *val, struct type *type,
 		}
 
 	      /* Print unboxed float with # prefix and proper .0 suffix for whole numbers.  */
-	      /* Format whole numbers with %.1f to ensure .0 suffix.  */
-	      if (float_val == (double)(long long)float_val &&
-		  float_val >= LLONG_MIN && float_val <= LLONG_MAX)
-		{
-		  /* Whole number: use %.1f to get .0 suffix.  */
-		  if (float_val < 0)
-		    gdb_printf (stream, "-#%.1f", -float_val);
-		  else
-		    gdb_printf (stream, "#%.1f", float_val);
-		}
-	      else
-		{
-		  /* Non-whole number: use %g for compact representation.  */
-		  if (float_val < 0)
-		    gdb_printf (stream, "-#%g", -float_val);
-		  else
-		    gdb_printf (stream, "#%g", float_val);
-		}
+	      ocaml_print_float (float_val, true, stream);
 	    }
 	  /* If it's a struct with DWARF type info, try DWARF-based printing first.
 	     This preserves proper OCaml semantics (semicolons, nested records, etc.).
@@ -2964,46 +2891,6 @@ ocaml_print_tuple (struct gdbarch *gdbarch, CORE_ADDR addr, ULONGEST size,
    - Currently, all tag 0 blocks are printed as tuples unless they match
      the list pattern (size 2 with proper tail chain) */
 
-static void __attribute__((unused))
-ocaml_print_array (struct gdbarch *gdbarch, CORE_ADDR addr, ULONGEST size,
-		   struct ui_file *stream, int recurse,
-		   const struct value_print_options *options)
-{
-  if (size == 0)
-    {
-      gdb_puts ("[||]", stream);
-      return;
-    }
-
-  gdb_puts ("[|", stream);
-
-  /* Respect print_max limit for array elements.  */
-  bool truncated = false;
-  ULONGEST print_size = size;
-  if (size > options->print_max)
-    {
-      print_size = options->print_max;
-      truncated = true;
-    }
-
-  for (ULONGEST i = 0; i < print_size; i++)
-    {
-      if (i > 0)
-	gdb_puts ("; ", stream);
-
-      LONGEST field_val;
-      if (ocaml_read_block_field (gdbarch, addr, i, &field_val))
-	ocaml_print_value (gdbarch, field_val, stream, recurse + 1, options);
-      else
-	gdb_puts ("<error>", stream);
-    }
-
-  if (truncated)
-    gdb_printf (stream, "; ... (%s more)", pulongest (size - print_size));
-
-  gdb_puts ("|]", stream);
-}
-
 /* Print an OCaml list in LLDB format: (:: (head, tail)).
    Lists use tag 0 blocks with 2 fields: head and tail.
    Empty list is represented as [].
@@ -3239,20 +3126,7 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
 	    {
 	      double d;
 	      memcpy (&d, buf, 8);
-	      /* Use custom formatting to ensure floats always show decimal point.
-		 The %g format removes trailing zeros and decimal point for whole numbers,
-		 but OCaml syntax requires 0.0 not 0 to distinguish float from int.
-		 Check if the value is a whole number and format accordingly.  */
-	      if (d == (double)(long long)d && d >= LLONG_MIN && d <= LLONG_MAX)
-		{
-		  /* Whole number that fits in long long: print with .0 suffix to show it's a float.  */
-		  gdb_printf (stream, "%.1f", d);
-		}
-	      else
-		{
-		  /* Non-whole number or very large number: use %g for compact representation.  */
-		  gdb_printf (stream, "%g", d);
-		}
+	      ocaml_print_float (d, false, stream);
 	    }
 	  else
 	    gdb_puts ("<float>", stream);
