@@ -65,6 +65,8 @@
 #include "extract-store-integer.h"
 
 /* The name of the symbol to use to get the name of the main subprogram.  */
+/* TODO This should be the startup.S or entry for the main module. We
+   don't really have a main function like C or Rust. */
 static const char OCAML_MAIN[] = "camlDune__exe__Main";
 
 /* Function returning the special symbol name used by OCaml for the main
@@ -90,6 +92,7 @@ ocaml_main_name (void)
    followed by encoded module paths and identifiers. The oxcaml_demangle
    function in libiberty handles the decoding.
 
+   TODO Have more detailed examples here.
    Examples:
    - _O4List3map -> List.map
    - _OModuleA__ModuleB__function -> ModuleA.ModuleB.function  */
@@ -264,7 +267,9 @@ public:
 	(struct value *val, struct ui_file *stream, int recurse,
 	 const struct value_print_options *options) const override
   {
-    return ocaml_value_print_inner (val, stream, recurse, options);
+    /* Pass value's type to preserve DWARF information from the start.
+       This enables type-aware printing throughout the recursion. */
+    return ocaml_value_print_inner (val, stream, recurse, options, val->type ());
   }
 
   /* See language.h.  */
@@ -519,6 +524,7 @@ ocaml_print_string (struct gdbarch *gdbarch, CORE_ADDR addr,
   /* The actual string length excludes the padding bytes.  */
   ULONGEST string_len = byte_size - last_byte - 1;
 
+  /* TODO Is there a more principled way to truncate a long string being printed? */
   /* Limit the length to avoid excessive output.  */
   const ULONGEST max_print_len = 200;
   bool truncated = false;
@@ -601,10 +607,36 @@ ocaml_get_variant_parts (struct type *type)
   if (variant_prop == nullptr)
     return nullptr;
 
-  if (variant_prop->kind () != PROP_VARIANT_PARTS)
-    return nullptr;
+  /* After variant type resolution, GDB rewrites the property kind from
+     PROP_VARIANT_PARTS to PROP_TYPE and stores the original (unresolved) type.
+     In this case, we need to get the original type and check for variant_parts there.
 
-  return variant_prop->variant_parts ();
+     See gdbtypes.h lines 290-294:
+     "Once a variant type is resolved, we may want to be able to go from the
+      resolved type to the original type. In this case we rewrite the property's
+      kind and set this field [original_type]."  */
+  if (variant_prop->kind () == PROP_TYPE)
+    {
+      /* Variant type has been resolved - get original type with variant_parts.  */
+      struct type *original = variant_prop->original_type ();
+      if (original != nullptr)
+        {
+          /* Recursively check the original type for variant_parts.
+             This should have PROP_VARIANT_PARTS kind.  */
+          dynamic_prop *original_prop = original->dyn_prop (DYN_PROP_VARIANT_PARTS);
+          if (original_prop != nullptr && original_prop->kind () == PROP_VARIANT_PARTS)
+            return original_prop->variant_parts ();
+        }
+      /* Original type doesn't have variant_parts - this shouldn't happen.  */
+      return nullptr;
+    }
+
+  /* Normal case - property has PROP_VARIANT_PARTS kind.  */
+  if (variant_prop->kind () == PROP_VARIANT_PARTS)
+    return variant_prop->variant_parts ();
+
+  /* Unexpected property kind - neither PROP_VARIANT_PARTS nor PROP_TYPE.  */
+  return nullptr;
 }
 
 /* Check if this variant_part represents an unboxed variant.
@@ -638,11 +670,14 @@ ocaml_is_unboxed_variant (struct type *type, const variant_part &part)
      This is because immediate OCaml values (int, bool, char) use the `ocaml_value`
      type in DWARF even when unboxed.
 
-     We only need to check for explicit pointer/reference types. If we find those,
-     it's a regular variant that happens to use a bit-level discriminant.
+     We check two things to distinguish true unboxed variants from regular variants:
+     1. Reference/pointer fields - unboxed variants cannot have these
+     2. Discriminant enum names - unboxed use internal names (Pointer/Immediate),
+        regular variants use constructor names (Leaf/Node/etc.)
 
      NOTE: ocaml_value fields are ALLOWED in unboxed variants - they just represent
      immediate values (tagged ints, bools) stored inline, not pointers to blocks.  */
+  /* First check: look for reference/pointer fields.  */
   for (int i = 0; i < type->num_fields (); ++i)
     {
       const field &f = type->field (i);
@@ -657,9 +692,40 @@ ocaml_is_unboxed_variant (struct type *type, const variant_part &part)
 	}
     }
 
-  /* Bit-level discriminant AND no explicit reference/pointer fields:
-     this is an unboxed variant. ocaml_value fields are fine - they represent
-     immediate values stored inline.  */
+  /* Second check: examine discriminant enum names.
+     For nested regular variants, DWARF may not include the reference field in the
+     typedef, so we also check if the discriminant enum has internal names
+     (Pointer/Immediate) which indicate a regular variant, not truly unboxed.
+
+     True unboxed variants (@@unboxed attribute) have discriminant enums with
+     constructor names (ValueInt, ValueFloat, etc.), not Pointer/Immediate.  */
+  struct type *discr_type = check_typedef (discr_field.type ());
+
+  if (discr_type->code () == TYPE_CODE_ENUM && discr_type->num_fields () > 0)
+    {
+      /* Check if enum has "Pointer" or "Immediate" values - these are internal
+         discriminants for regular variants, not constructor names.  */
+      for (int i = 0; i < discr_type->num_fields (); ++i)
+	{
+	  const char *enum_name = discr_type->field (i).name ();
+	  if (enum_name != nullptr &&
+	      (strcmp (enum_name, "Pointer") == 0 || strcmp (enum_name, "Immediate") == 0))
+	    {
+		/* TODO Remove debug printf */
+	      /* Found Pointer/Immediate - this is a regular variant's internal discriminant,
+		 not a true unboxed variant. Return false.  */
+	      if (debug_infrun)
+		gdb_printf (gdb_stdlog, "DEBUG unboxed check: found Pointer/Immediate enum, returning false\n");
+	      return false;
+	    }
+	}
+    }
+
+  if (debug_infrun)
+    gdb_printf (gdb_stdlog, "DEBUG unboxed check: no REF/PTR and no Pointer/Immediate, returning true\n");
+
+  /* Bit-level discriminant AND no reference/pointer fields AND no Pointer/Immediate enum:
+     this is a true unboxed variant.  */
   return true;
 }
 
@@ -684,24 +750,17 @@ ocaml_is_variant_struct (struct type *type)
   /* Check if this type has variant parts - if yes, it's a variant.  */
   const gdb::array_view<variant_part> *parts = ocaml_get_variant_parts (type);
 
-  /* DEBUG: Check variant parts */
-  if (debug_infrun)
-    {
-      gdb_printf (gdb_stdlog, "DEBUG is_variant_struct: type=%p, parts=%p, has_parts=%d\n",
-		  type, parts, parts != nullptr);
-    }
-
   return (parts != nullptr);
 }
 
 /* Check if a variant should print its fields as a record.
    Returns true if the variant has multiple named fields, indicating
    an inline record constructor like: Constructor {field1=val1; field2=val2}
-   
+
    Parameters:
    - type: The parent struct type containing all variant fields
    - var: The active variant (from variant_parts matching the discriminant)
-   
+
    Returns: true if this variant's fields should be formatted as a record  */
 
 static bool
@@ -859,7 +918,7 @@ ocaml_get_constructor_name (struct type *type, const variant &v)
       return f.name ();
     }
 
-  return nullptr;
+  return nullptr; 		/* TODO Is returning nullptr good practice here? */
 }
 
 /* Check if a type is a record type (structure with named fields).
@@ -938,7 +997,7 @@ ocaml_is_tuple_type (struct type *type)
 
    Detection: Check if the type name is "exn" or contains exception-related
    naming conventions.  */
-
+/* TODO Is this used anywhere? Duplicate code */
 __attribute__((unused)) static bool
 ocaml_is_exception_type (struct type *type)
 {
@@ -975,7 +1034,7 @@ ocaml_is_exception_type (struct type *type)
    - Structure type with one field
 
    Returns true if this is a reference type.  */
-
+/* TODO Can this consult the DWARF information rather than looking in the type name? */
 /* Check if a type represents an OCaml array.
    Arrays are identified by their type name containing " array".
    Examples: "char array", "int array @ value", "float array", etc.  */
@@ -1058,7 +1117,7 @@ ocaml_is_reference_type (struct type *type)
    After:  [42]
 
    Returns true if successfully printed, false if no reference info available.  */
-
+/* TODO Is this idiomatic gdb format? */
 static bool
 ocaml_print_reference_with_type (struct value *val, struct type *type,
 				  struct ui_file *stream, int recurse,
@@ -1339,8 +1398,13 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 {
   /* DEBUG: Log function entry */
   if (debug_infrun)
-    gdb_printf (gdb_stdlog, "DEBUG: ocaml_print_variant_with_type called, type=%s\n",
-		type->name () ? type->name () : "<null>");
+    {
+      gdb_printf (gdb_stdlog, "\n========================================\n");
+      gdb_printf (gdb_stdlog, "DEBUG: ocaml_print_variant_with_type called\n");
+      gdb_printf (gdb_stdlog, "DEBUG:   type=%s, recurse=%d\n",
+		  type->name () ? type->name () : "<null>", recurse);
+      gdb_printf (gdb_stdlog, "========================================\n");
+    }
 
   /* Get the variant parts from the type.  */
   const gdb::array_view<variant_part> *parts = ocaml_get_variant_parts (type);
@@ -1619,33 +1683,32 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	}
     }
 
-  /* Choose enum based on whether value is block or immediate.
-     - Block values (constructors with data): use nested enum from referenced struct
-     - Immediate values (no-arg constructors): use parent enum  */
+  /* Try to get enum from referenced struct.
+     Both immediate and block values of the same variant type share the same
+     constructor enum, which is located in the referenced struct's discriminant.
+     For nested variants, this is critical because the typedef's top-level enums
+     might be incomplete (empty), but the referenced struct has the full enum.  */
   if (is_block_value && ref_field >= 0)
     {
-      /* Try to get enum from nested struct (for constructors with data).  */
+      /* Get the struct that the reference points to.  */
       struct type *ref_type = check_typedef (type->field (ref_field).type ());
       struct type *target_type = check_typedef (ref_type->target_type ());
 
       if (target_type->code () == TYPE_CODE_STRUCT && target_type->num_fields () > 0)
 	{
-	  /* For polymorphic variants, the enum with all constructor names is at the
-	     discriminant of the variant_part, not necessarily at field[0].
-	     Check if this struct has variant_parts. */
-	  dynamic_prop *variant_prop = target_type->dyn_prop (DYN_PROP_VARIANT_PARTS);
-	  if (variant_prop != nullptr && variant_prop->kind () == PROP_VARIANT_PARTS)
+	  /* For nested variants, the enum with constructor names is at the discriminant
+	     of the referenced struct's variant_part. Use ocaml_get_variant_parts() to
+	     handle both resolved (PROP_TYPE) and unresolved (PROP_VARIANT_PARTS) types.  */
+	  const gdb::array_view<variant_part> *nested_parts = ocaml_get_variant_parts (target_type);
+	  if (nested_parts != nullptr && !nested_parts->empty ())
 	    {
-	      gdb::array_view<variant_part> nested_parts = *variant_prop->variant_parts ();
-	      if (!nested_parts.empty () && nested_parts[0].discriminant_index >= 0)
+	      const variant_part &nested_part = (*nested_parts)[0];
+	      if (nested_part.discriminant_index >= 0 &&
+		  nested_part.discriminant_index < target_type->num_fields ())
 		{
-		  int discr_idx = nested_parts[0].discriminant_index;
-		  if (discr_idx < target_type->num_fields ())
-		    {
-		      struct type *discr_type = check_typedef (target_type->field (discr_idx).type ());
-		      if (discr_type->code () == TYPE_CODE_ENUM)
-			enum_type = discr_type;
-		    }
+		  struct type *discr_type = check_typedef (target_type->field (nested_part.discriminant_index).type ());
+		  if (discr_type->code () == TYPE_CODE_ENUM)
+		    enum_type = discr_type;
 		}
 	    }
 
@@ -1662,6 +1725,10 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
   /* For immediate values or if no nested enum found, use parent enum.  */
   if (enum_type == nullptr)
     {
+      if (debug_infrun)
+	gdb_printf (gdb_stdlog, "DEBUG: Looking for parent enum, is_block=%d, type=%s, num_fields=%d\n",
+		    is_block_value, type->name () ? type->name () : "<null>", type->num_fields ());
+
       int max_bitsize = 0;
       int constructor_enum_field = -1;
       int polymorphic_variant_enum_field = -1;
@@ -1689,11 +1756,21 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		    is_poly_variant = true;
 		}
 
+	      /* Skip the discriminant enum (Pointer/Immediate) - we want the constructor enum.
+	         The discriminant enum has values "Pointer" and "Immediate" which are internal.  */
+	      bool is_discriminant_enum = false;
+	      if (field_type->num_fields () > 0)
+		{
+		  const char *first_name = field_type->field (0).name ();
+		  if (first_name && (strcmp (first_name, "Pointer") == 0 || strcmp (first_name, "Immediate") == 0))
+		    is_discriminant_enum = true;
+		}
+
 	      if (is_poly_variant)
 		{
 		  polymorphic_variant_enum_field = i;
 		}
-	      else if (bitsize > max_bitsize)
+	      else if (!is_discriminant_enum && bitsize > max_bitsize)
 		{
 		  max_bitsize = bitsize;
 		  constructor_enum_field = i;
@@ -1705,10 +1782,105 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
       if (polymorphic_variant_enum_field >= 0)
 	{
 	  enum_type = check_typedef (type->field (polymorphic_variant_enum_field).type ());
+	  if (debug_infrun)
+	    gdb_printf (gdb_stdlog, "DEBUG: Selected poly variant enum field %d\n", polymorphic_variant_enum_field);
 	}
       else if (constructor_enum_field >= 0)
 	{
 	  enum_type = check_typedef (type->field (constructor_enum_field).type ());
+	  if (debug_infrun)
+	    gdb_printf (gdb_stdlog, "DEBUG: Selected constructor enum field %d, num_fields=%d\n",
+			constructor_enum_field, enum_type->num_fields ());
+	}
+      else if (debug_infrun)
+	gdb_printf (gdb_stdlog, "DEBUG: No constructor enum found in parent type\n");
+    }
+
+  /* Track if we used the Pointer branch fallback for immediate variants.
+     This is needed to distinguish between:
+     - Simple variants (A | B | C) where all are immediates: use standard matching
+     - Nested variants (Leaf of int | Node) where only some can be immediate: use fallback  */
+  bool used_pointer_branch_fallback = false;
+
+  /* FALLBACK for nested immediate variants with empty constructor enum:
+     OxCaml generates DWARF where the Immediate branch has an empty enum,
+     but the Pointer branch has the full constructor enum. For immediate nested
+     variants, we need to access the Pointer branch enum to get constructor names.
+
+     For immediate values, ref_field=-1 because the resolved type only shows the
+     Immediate branch. We need to look in the original unresolved type (or search
+     all fields) to find the Pointer branch's reference field. */
+  if (!is_block_value && (enum_type == nullptr || enum_type->num_fields () == 0))
+    {
+      if (debug_infrun)
+	gdb_printf (gdb_stdlog, "DEBUG: Trying Pointer branch enum for immediate value (ref_field=%d)\n",
+		    ref_field);
+
+      /* For resolved types (immediate branch), we need to access the original unresolved
+         type which has all variant branches including the Pointer branch with ref field.  */
+      struct type *search_type = type;
+      dynamic_prop *variant_prop = type->dyn_prop (DYN_PROP_VARIANT_PARTS);
+      if (variant_prop != nullptr && variant_prop->kind () == PROP_TYPE)
+	{
+	  struct type *orig = variant_prop->original_type ();
+	  if (orig != nullptr)
+	    {
+	      search_type = orig;
+	      if (debug_infrun)
+		gdb_printf (gdb_stdlog, "DEBUG: Using original_type with %d fields\n",
+			    search_type->num_fields ());
+	    }
+	}
+
+      /* Search for reference field in the (possibly original) type */
+      int search_ref_field = ref_field;
+      if (search_ref_field < 0)
+	{
+	  for (int i = 0; i < search_type->num_fields (); ++i)
+	    {
+	      struct type *field_type = check_typedef (search_type->field (i).type ());
+	      if (debug_infrun)
+		gdb_printf (gdb_stdlog, "DEBUG: field[%d] code=%d\n", i, field_type->code ());
+	      if (field_type->code () == TYPE_CODE_REF || field_type->code () == TYPE_CODE_PTR)
+		{
+		  search_ref_field = i;
+		  if (debug_infrun)
+		    gdb_printf (gdb_stdlog, "DEBUG: Found reference field at index %d\n", i);
+		  break;
+		}
+	    }
+	}
+
+      if (search_ref_field >= 0 && search_ref_field < search_type->num_fields ())
+	{
+	  /* Navigate to Pointer branch: reference field → target struct → variant_part → discriminant */
+	  struct type *ref_type = check_typedef (search_type->field (search_ref_field).type ());
+	  struct type *target_type = check_typedef (ref_type->target_type ());
+
+	  if (target_type->code () == TYPE_CODE_STRUCT && target_type->num_fields () > 0)
+	    {
+	      const gdb::array_view<variant_part> *target_parts = ocaml_get_variant_parts (target_type);
+	      if (target_parts != nullptr && !target_parts->empty ())
+		{
+		  const variant_part &target_part = (*target_parts)[0];
+		  if (target_part.discriminant_index >= 0 &&
+		      target_part.discriminant_index < target_type->num_fields ())
+		    {
+		      struct type *discr_type = check_typedef (target_type->field (target_part.discriminant_index).type ());
+		      if (discr_type->code () == TYPE_CODE_ENUM && discr_type->num_fields () > 0)
+			{
+			  enum_type = discr_type;
+			  /* Also update ref_field for later use in immediate matching */
+			  ref_field = search_ref_field;
+			  /* Mark that we used the Pointer branch fallback */
+			  used_pointer_branch_fallback = true;
+			  if (debug_infrun)
+			    gdb_printf (gdb_stdlog, "DEBUG: Found Pointer branch enum with %d fields\n",
+					enum_type->num_fields ());
+			}
+		    }
+		}
+	    }
 	}
     }
 
@@ -1759,30 +1931,58 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
   /* Look up constructor name from enum using discriminant (for non-poly-variant or immediates).  */
   if (constructor_name == nullptr && enum_type != nullptr)
     {
-      for (int i = 0; i < enum_type->num_fields (); ++i)
+      /* For immediate nested variants with Pointer branch enum (from fallback above),
+         the discriminant is the immediate value, but enum values are block tags.
+         In this case, only single-argument constructors can be immediate, so we match
+         to the first (lowest-tag) constructor in the enum. */
+      if (!is_block_value && used_pointer_branch_fallback && !is_poly_variant_enum &&
+	  enum_type->num_fields () > 0)
 	{
-	  LONGEST enum_value = enum_type->field (i).loc_enumval ();
-
-	  /* For polymorphic variants, the enum value stores the raw immediate value
-	     (hash with LSB=1 tag), but the discriminant has been unshifted (>>1).
-	     We need to reconstruct the raw immediate from the discriminant to match. */
-	  bool match = false;
-	  if (is_poly_variant_enum)
+	  /* Find constructor with smallest enum value (likely the simple constructor) */
+	  LONGEST min_tag = enum_type->field (0).loc_enumval ();
+	  const char *min_name = enum_type->field (0).name ();
+	  for (int i = 1; i < enum_type->num_fields (); ++i)
 	    {
-	      /* Poly variant: reconstruct raw immediate from unshifted discriminant */
-	      LONGEST raw_discr = (discr << 1) | 1;
-	      match = (enum_value == raw_discr);
+	      LONGEST tag = enum_type->field (i).loc_enumval ();
+	      if (tag < min_tag)
+		{
+		  min_tag = tag;
+		  min_name = enum_type->field (i).name ();
+		}
 	    }
-	  else
+	  constructor_name = min_name;
+	  if (debug_infrun)
+	    gdb_printf (gdb_stdlog, "DEBUG: Immediate variant matched to first constructor %s (tag=%ld)\n",
+			constructor_name, (long)min_tag);
+	}
+      else
+	{
+	  /* Standard constructor lookup by discriminant matching */
+	  for (int i = 0; i < enum_type->num_fields (); ++i)
 	    {
-	      /* Regular variant: direct comparison */
-	      match = (enum_value == discr);
-	    }
+	      LONGEST enum_value = enum_type->field (i).loc_enumval ();
 
-	  if (match)
-	    {
-	      constructor_name = enum_type->field (i).name ();
-	      break;
+	      /* For polymorphic variants, the enum value stores the raw immediate value
+		 (hash with LSB=1 tag), but the discriminant has been unshifted (>>1).
+		 We need to reconstruct the raw immediate from the discriminant to match. */
+	      bool match = false;
+	      if (is_poly_variant_enum)
+		{
+		  /* Poly variant: reconstruct raw immediate from unshifted discriminant */
+		  LONGEST raw_discr = (discr << 1) | 1;
+		  match = (enum_value == raw_discr);
+		}
+	      else
+		{
+		  /* Regular variant: direct comparison */
+		  match = (enum_value == discr);
+		}
+
+	      if (match)
+		{
+		  constructor_name = enum_type->field (i).name ();
+		  break;
+		}
 	    }
 	}
     }
@@ -1792,8 +1992,15 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 
   /* DEBUG: Log constructor details */
   if (debug_infrun)
-    gdb_printf (gdb_stdlog, "DEBUG: constructor=%s, is_block=%d, ref_field=%d\n",
-		constructor_name, is_block_value, ref_field);
+    {
+      gdb_printf (gdb_stdlog, "DEBUG: constructor=%s, is_block=%d, ref_field=%d\n",
+		  constructor_name, is_block_value, ref_field);
+      gdb_printf (gdb_stdlog, "DEBUG: enum_type=%p, enum_fields=%d\n",
+		  enum_type, enum_type ? enum_type->num_fields () : -1);
+      gdb_printf (gdb_stdlog, "DEBUG: type=%s, type_name=%s\n",
+		  type->code() == TYPE_CODE_STRUCT ? "STRUCT" : "OTHER",
+		  type->name() ? type->name() : "<null>");
+    }
 
   /* Check if this constructor has data (block pointer).
      Note: val_raw and is_block_value already computed above.  */
@@ -1888,7 +2095,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 	     then check if those fields have names (indicating an inline record).  */
 	  bool print_as_record = false;
 	  const variant *active_var = nullptr;
-	  
+
 	  if (target_type != nullptr && target_type->code () == TYPE_CODE_STRUCT && num_fields > 1)
 	    {
 	      /* Get the variant_parts from target_type to find active fields.
@@ -1898,7 +2105,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		{
 		  const variant_part &type_part = (*type_parts)[0];
 		  active_var = ocaml_find_matching_variant (type_part, discr);
-		  
+
 		  if (active_var != nullptr)
 		    {
 		      /* Check if the active variant has multiple named fields (inline record) */
@@ -1998,7 +2205,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		      if (field_type != nullptr && field_type->code () == TYPE_CODE_FLT)
 			{
 			  double float_val;
-			  
+
 			  if (field_type->length () == 8)
 			    {
 			      /* 64-bit float (double). field_val contains raw float bits.  */
@@ -2211,8 +2418,8 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 		    }
 		  else
 		    {
-		      /* Not a record (or is a variant) - use normal printing.  */
-		      ocaml_value_print_inner (field_value, stream, recurse + 1, options);
+		      /* Not a record (or is a variant) - pass field's DWARF type.  */
+		      ocaml_value_print_inner (field_value, stream, recurse + 1, options, field_value->type ());
 		    }
 		}
 	    }
@@ -2235,8 +2442,42 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
     }
   else
     {
-      /* No-arg constructor - just print the name.  */
-      gdb_puts (constructor_name, stream);
+      /* Immediate variant (not a block pointer).
+         For regular variants with data, the immediate encodes the data value.
+         For no-arg constructors, it's just a constant.  */
+
+      if (strcmp (constructor_name, "<unknown>") == 0 && ocaml_is_immediate_int (val_raw))
+	{
+	  /* Constructor name not found (empty enum), but we have an immediate value.
+	     This happens for nested variants where DWARF doesn't provide full type info.
+	     Decode the immediate value and print it as data.
+
+	     FALLBACK: Without constructor names, we show the decoded immediate value.
+	     For `Leaf 1`, this will print as `1` instead of `(Leaf 1)`.  */
+	  LONGEST data_val = ocaml_immediate_int_val (val_raw);
+	  gdb_printf (stream, "(%s)", plongest (data_val));
+	}
+      else
+	{
+	  /* Check if this is a constructor with data (not a constant constructor).
+	     For immediate variants like `Leaf of int`, we need to print both the
+	     constructor name and the integer value: (Leaf 1)
+
+	     Only print data if we used the Pointer branch fallback, which indicates
+	     this is a mixed-constructor variant where immediate values have data.
+	     For simple variants (A | B | C), all are immediates with no data. */
+	  if (used_pointer_branch_fallback && strcmp (constructor_name, "<unknown>") != 0)
+	    {
+	      /* This is a constructor with data - extract and print the integer value */
+	      LONGEST data_val = ocaml_immediate_int_val (val_raw);
+	      gdb_printf (stream, "(%s %s)", constructor_name, plongest (data_val));
+	    }
+	  else
+	    {
+	      /* No-arg constructor - just print the name.  */
+	      gdb_puts (constructor_name, stream);
+	    }
+	}
     }
 
   return true;
@@ -2361,15 +2602,17 @@ ocaml_print_record_with_type (struct value *val, struct type *type,
 
       gdb_printf (stream, "%s = ", field_name);
 
-      /* Get field value with DWARF type information preserved.  */
+      /* Get field value and type from DWARF record definition.
+	 Use DWARF field type, not value's type, to preserve variant_parts in typedefs.
+	 The value might have a different type (e.g., pointer) which loses type information.  */
       struct value *field_val = value_field (val, i);
-      struct type *field_type = check_typedef (field_val->type ());
+      struct type *field_type = type->field (i).type ();  /* From DWARF, not value */
 
-      /* If the field is a reference, dereference it.  */
+      /* If the field is a reference, dereference it but keep the DWARF type.  */
       if (field_type->code () == TYPE_CODE_REF)
 	{
 	  field_val = coerce_ref (field_val);
-	  field_type = check_typedef (field_val->type ());
+	  /* Keep using DWARF field_type, don't switch to value's type */
 	}
 
       /* Special handling for unboxed tuple fields (e.g., f.#0, f.#1).
@@ -2394,8 +2637,8 @@ ocaml_print_record_with_type (struct value *val, struct type *type,
 
 	      if (type_name != nullptr && strcmp (type_name, "ocaml_value") == 0)
 		{
-		  /* Regular OCaml int field - use standard value printing without suffix.  */
-		  ocaml_value_print_inner (field_val, stream, recurse + 1, options);
+		  /* Regular OCaml value field - pass DWARF type for nested type resolution.  */
+		  ocaml_value_print_inner (field_val, stream, recurse + 1, options, field_type);
 		  is_unboxed_tuple_field = true;  /* Mark as handled */
 		}
 	      else
@@ -2445,8 +2688,8 @@ ocaml_print_record_with_type (struct value *val, struct type *type,
 		}
 	      else
 		{
-		  /* Unexpected float size - fall back to regular printing.  */
-		  ocaml_value_print_inner (field_val, stream, recurse + 1, options);
+		  /* Unexpected float size - fall back to regular printing with DWARF type.  */
+		  ocaml_value_print_inner (field_val, stream, recurse + 1, options, field_type);
 		  continue;
 		}
 
@@ -2498,8 +2741,8 @@ ocaml_print_record_with_type (struct value *val, struct type *type,
 	    }
 	  else
 	    {
-	      /* Regular field: use ocaml_value_print_inner recursively.  */
-	      ocaml_value_print_inner (field_val, stream, recurse + 1, options);
+	      /* Regular field: pass DWARF type for nested type resolution.  */
+	      ocaml_value_print_inner (field_val, stream, recurse + 1, options, field_type);
 	    }
 	}
     }
@@ -2608,7 +2851,8 @@ ocaml_print_array_with_type (struct value *val, struct type *type,
 	    : builtin_type (gdbarch)->builtin_data_ptr;
 
 	  struct value *elem_value = value_from_longest (value_type, field_val);
-	  ocaml_value_print_inner (elem_value, stream, recurse + 1, options);
+	  /* Pass elem_type for DWARF-aware printing of array elements (e.g., nested variants, lists).  */
+	  ocaml_value_print_inner (elem_value, stream, recurse + 1, options, elem_type);
 	}
       else
 	gdb_puts ("<error>", stream);
