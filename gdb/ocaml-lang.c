@@ -1040,10 +1040,14 @@ ocaml_is_tuple_type (struct type *type)
    - Structure type with one field
 
    Returns true if this is a reference type.  */
-/* TODO Can this consult the DWARF information rather than looking in the type name? */
+
 /* Check if a type represents an OCaml array.
-   Arrays are identified by their type name containing " array".
-   Examples: "char array", "int array @ value", "float array", etc.  */
+   DWARF-based detection (primary): OCaml arrays are represented as typedef'd
+   types that resolve to TYPE_CODE_ARRAY. This structural check is more reliable
+   than name matching.
+   Heuristic fallback: If DWARF structure check doesn't confirm it's an array,
+   falls back to checking type name for " array" pattern. This may produce false
+   positives for non-array types with "array" in their names.  */
 
 static bool
 ocaml_is_array_type (struct type *type)
@@ -1051,6 +1055,16 @@ ocaml_is_array_type (struct type *type)
   if (type == nullptr)
     return false;
 
+  /* DWARF-based detection: Check if this type resolves to TYPE_CODE_ARRAY.
+     OCaml arrays are typedef'd enums that become TYPE_CODE_ARRAY after
+     typedef resolution.  */
+  struct type *resolved_type = check_typedef (type);
+  if (resolved_type != nullptr && resolved_type->code () == TYPE_CODE_ARRAY)
+    return true;
+
+  /* HEURISTIC FALLBACK: Check type name for " array" pattern.
+     WARNING: This may misidentify non-array types with "array" in their names.
+     For accurate detection, ensure DWARF debug info is available.  */
   const char *type_name = type->name ();
   if (type_name == nullptr)
     return false;
@@ -1066,8 +1080,64 @@ ocaml_is_array_type (struct type *type)
   return (*after == '\0' || strncmp (after, " @", 2) == 0);
 }
 
+/* Helper: Check if a variant type has constructors with specific names.
+
+   This function examines the DWARF variant_part to check if the type has
+   constructors matching the provided names. Used for DWARF-based type detection.
+
+   Returns true if ALL specified constructor names are found in the variant's enum.  */
+
+static bool
+ocaml_variant_has_constructors (struct type *type, const char **constructor_names, int count)
+{
+  if (type == nullptr || constructor_names == nullptr || count <= 0)
+    return false;
+
+  /* Get variant parts from DWARF.  */
+  const gdb::array_view<variant_part> *parts = ocaml_get_variant_parts (type);
+  if (parts == nullptr || parts->empty ())
+    return false;
+
+  const variant_part &part = (*parts)[0];
+
+  /* Get the discriminant enum type.  */
+  if (part.discriminant_index < 0 || part.discriminant_index >= type->num_fields ())
+    return false;
+
+  struct type *enum_type = check_typedef (type->field (part.discriminant_index).type ());
+  if (enum_type == nullptr || enum_type->code () != TYPE_CODE_ENUM)
+    return false;
+
+  /* Check if all required constructor names exist in the enum.  */
+  for (int i = 0; i < count; i++)
+    {
+      bool found = false;
+      for (int j = 0; j < enum_type->num_fields (); j++)
+	{
+	  const char *field_name = enum_type->field (j).name ();
+	  if (field_name != nullptr && strcmp (field_name, constructor_names[i]) == 0)
+	    {
+	      found = true;
+	      break;
+	    }
+	}
+      if (!found)
+	return false;
+    }
+
+  return true;
+}
+
 /* Check if a type represents an OCaml list.
-   Lists are identified by their type name containing " list".
+
+   DWARF-based detection (primary): Lists have variant_part with constructors
+   named "[]" (empty list) and "::" (cons). This is more reliable than name
+   matching as it directly checks the type structure.
+
+   Heuristic fallback: If DWARF information is unavailable or incomplete, falls
+   back to checking if the type name contains " list". This may produce false
+   positives for non-list types with "list" in their names.
+
    Examples: "char list", "int list @ value", "string list", etc.  */
 
 static bool
@@ -1076,6 +1146,13 @@ ocaml_is_list_type (struct type *type)
   if (type == nullptr)
     return false;
 
+  /* DWARF-based detection: Check for variant constructors "[]" and "::".  */
+  const char *list_constructors[] = {"[]", "::"};
+  if (ocaml_variant_has_constructors (type, list_constructors, 2))
+    return true;
+
+  /* HEURISTIC FALLBACK: Check type name for " list" pattern.
+     This is less reliable but works when DWARF is incomplete.  */
   const char *type_name = type->name ();
   if (type_name == nullptr)
     return false;
@@ -2880,30 +2957,28 @@ ocaml_print_tuple (struct gdbarch *gdbarch, CORE_ADDR addr, ULONGEST size,
 /* Print an OCaml array.
    Arrays are printed as [|elem0; elem1; elem2; ...|].
 
-   TODO: Array vs Tuple Disambiguation
+   Array vs Tuple Disambiguation:
    - OCaml arrays and tuples both use tag 0 blocks
-   - Without DWARF type information, we cannot reliably distinguish them
-   - This function is kept for future use when type information becomes available
-   - Future work: Check DWARF DIE type to determine if a tag 0 block is:
-     * An array ('a array type)
-     * A tuple ('a * 'b * ... type)
-     * A record (may also use tag 0 depending on optimization)
-   - Currently, all tag 0 blocks are printed as tuples unless they match
-     the list pattern (size 2 with proper tail chain) */
+   - We now use DWARF type information to distinguish them:
+     * Arrays: TYPE_CODE_ARRAY after typedef resolution (implemented)
+     * Lists: variant_part with constructors [] and :: (implemented)
+     * Tuples: TYPE_CODE_STRUCT without variant_parts
+     * Records: TYPE_CODE_STRUCT with named fields
+   - Tag 0 blocks are printed as tuples unless identified as arrays or lists */
 
 /* Print an OCaml list in LLDB format: (:: (head, tail)).
    Lists use tag 0 blocks with 2 fields: head and tail.
    Empty list is represented as [].
 
-   TODO: List Detection Heuristic Limitations
-   - Current detection: tag 0, size 2, tail is [] or another block
-   - This heuristic may incorrectly identify other ADTs as lists:
+   List Detection (DWARF-first):
+   - Primary method: Check DWARF variant_part for constructors [] and ::
+   - This reliably identifies list types at compile time
+   - Fallback: Runtime pattern matching (tag 0, size 2, tail is [] or block)
+   - The fallback may incorrectly identify other ADTs as lists:
      * ('a * 'b) tuples where second element is [] or a block
      * Binary trees or other recursive structures with similar layout
      * Some variant constructors with 2 fields
-   - Future work: Use DWARF type information to confirm list type
-   - Better approach: Check if type is "list" or has DW_TAG_variant_part
-     with constructors named [] and :: */
+   - For accurate detection, ensure DWARF debug info is available */
 
 static void
 ocaml_print_list (struct gdbarch *gdbarch, LONGEST list_val,
@@ -3145,7 +3220,21 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
       else if (tag == 0)
 	{
 	  /* Tag 0 can be tuple, list cons, option Some, or other ADTs.
-	     Try to detect lists (size 2 pattern).  */
+	     DWARF-based detection (primary): Check if DWARF type information
+	     indicates this is a list type (has constructors "[]" and "::").
+	     This is more reliable than runtime pattern matching.  */
+	  if (dwarf_type != nullptr && ocaml_is_list_type (dwarf_type))
+	    {
+	      /* DWARF confirms this is a list type. Print as list.  */
+	      unsigned int elements_printed = 0;
+	      ocaml_print_list (gdbarch, val_raw, stream, recurse, options,
+				&elements_printed);
+	      return;
+	    }
+
+	  /* HEURISTIC FALLBACK: Try to detect lists using runtime pattern.
+	     WARNING: This may misidentify tuples or other ADTs as lists.
+	     For accurate detection, ensure DWARF debug info is available.  */
 	  if (size == 2)
 	    {
 	      /* Could be a list cons cell. Let's check if it looks like one
@@ -3190,35 +3279,66 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
 	     - Field 0: pointer to custom operations structure
 	     - Field 1: data (int32, int64, or float)
 
+	     DWARF-based detection (primary): Check the DWARF type name to determine
+	     if this is int32, int64, nativeint, or float. This is reliable.
+
 	     HEURISTIC FALLBACK: Without DWARF type information, we cannot definitively
 	     determine the custom block type. We use the block size to guess:
 	     - Size 2 (1 ops + 1 data field): int32 (4 bytes) or float (8 bytes)
 	     - Size 3 (1 ops + 2 data fields): int64 (8 bytes) packed as 2 words on 32-bit
 
-	     For accurate type interpretation, DWARF info should be used when available.  */
+	     For accurate type interpretation, ensure DWARF debug info is available.  */
 
+	  /* Read field 1 (the data field) - needed for both DWARF and heuristic paths.  */
+	  LONGEST data_field = 0;
 	  ULONGEST block_size = ocaml_header_size (header);
+	  bool has_data = false;
 
-	  if (block_size >= 2)
+	  if (block_size >= 2 && ocaml_read_block_field (gdbarch, addr, 1, &data_field))
+	    has_data = true;
+
+	  /* DWARF-based detection: Check type name for int32, int64, nativeint.  */
+	  if (dwarf_type != nullptr && has_data)
 	    {
-	      /* Read field 1 (the data field).  */
-	      LONGEST data_field;
-	      if (ocaml_read_block_field (gdbarch, addr, 1, &data_field))
+	      const char *type_name = dwarf_type->name ();
+	      if (type_name != nullptr)
 		{
-		  /* On 64-bit architectures, int32 and int64 both fit in one word.
-		     Check if this looks like int32 (value fits in 32 bits).  */
-		  if (data_field >= INT32_MIN && data_field <= INT32_MAX)
+		  if (strstr (type_name, "int32") != nullptr)
 		    {
-		      /* Likely int32 - print with 'l' suffix.  */
 		      gdb_printf (stream, "%ldl", (long)data_field);
 		      return;
 		    }
-		  else
+		  else if (strstr (type_name, "int64") != nullptr)
 		    {
-		      /* Likely int64 or nativeint - print with 'L' suffix.  */
 		      gdb_printf (stream, "%ldL", (long)data_field);
 		      return;
 		    }
+		  else if (strstr (type_name, "nativeint") != nullptr)
+		    {
+		      gdb_printf (stream, "%ldn", (long)data_field);
+		      return;
+		    }
+		}
+	    }
+
+	  /* HEURISTIC FALLBACK: Guess type based on value range.
+	     WARNING: Cannot distinguish int32 from int64 when value fits in 32 bits.
+	     For accurate detection, ensure DWARF debug info is available.  */
+	  if (has_data)
+	    {
+	      /* On 64-bit architectures, int32 and int64 both fit in one word.
+		 Check if this looks like int32 (value fits in 32 bits).  */
+	      if (data_field >= INT32_MIN && data_field <= INT32_MAX)
+		{
+		  /* Likely int32 - print with 'l' suffix.  */
+		  gdb_printf (stream, "%ldl", (long)data_field);
+		  return;
+		}
+	      else
+		{
+		  /* Likely int64 or nativeint - print with 'L' suffix.  */
+		  gdb_printf (stream, "%ldL", (long)data_field);
+		  return;
 		}
 	    }
 
