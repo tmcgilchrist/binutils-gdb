@@ -17,39 +17,33 @@
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-   TODO: DWARF Type Information Integration
-   ========================================
-   The current implementation uses heuristics to interpret OCaml's tagged
-   value representation. Many improvements are possible with DWARF type info:
+   OCaml Language Support Implementation
+   ======================================
 
-   1. VALUE DISAMBIGUATION
-      - Distinguish (), false, [], None (all have runtime value 1)
-      - Distinguish arrays from tuples (both use tag 0 blocks)
-      - Identify which variant constructor a block represents
+   This file implements OCaml language support for GDB, including:
+   - DWARF-based type interpretation for variants, records, arrays, and tuples
+   - OCaml runtime value representation handling (tagged integers and block pointers)
+   - Pretty-printing for OCaml-specific types (lists, options, polymorphic variants)
+   - Support for unboxed variants and custom blocks (int32#, int64#, nativeint#)
+   - Exception handling and lazy value evaluation
 
-   2. SYMBOLIC NAMES
-      - Print variant constructor names instead of tag numbers
-      - Print record field names instead of positional fields
-      - Show type names for custom blocks
+   DWARF Integration Status: IMPLEMENTED
+   - Variant types with constructor names (DW_TAG_variant_part)
+   - Record types with field names (DW_TAG_member)
+   - Array vs tuple disambiguation (TYPE_CODE_ARRAY)
+   - Custom block type identification (int32#, int64#, nativeint#)
+   - Bool vs int disambiguation (TYPE_CODE_BOOL vs TYPE_CODE_INT)
 
-   3. DWARF INTEGRATION APPROACH
-      - Check value->type() for DWARF DIE information
-      - For variant types: Look for DW_TAG_variant_part
-      - For records: Extract field names from DW_TAG_member
-      - For arrays/tuples: Check type structure to distinguish
-      - Map block tags to constructor names via DWARF attributes
+   Current Limitations and Future Improvements:
+   See OCAML_DWARF_LIMITATIONS.md for detailed documentation of:
+   - Type detection heuristics (record/tuple/reference identification)
+   - Value disambiguation requirements (char/int/bool without DWARF)
+   - Incomplete features (float array element printing, exception ID resolution)
+   - String handling and configuration improvements
 
-   4. EXAMPLE IMPROVEMENTS
-      Before (current):  <block tag=0 size=1>
-      After (with DWARF): Some 42
-
-      Before (current):  (1, 2)
-      After (with DWARF): [|1; 2|]  (if actually an array)
-
-      Before (current):  <block tag=2 size=2>
-      After (with DWARF): Point {x=10; y=20}
-
-   See individual TODO comments throughout this file for specific areas.  */
+   For implementation details and test coverage, see:
+   - OCAML_IMPLEMENTATION_SUMMARY.md - Overall architecture and design
+   - testsuite/gdb.ocaml/ - 510 test cases covering all features (.exp files)  */
 
 #include "symtab.h"
 #include "language.h"
@@ -471,6 +465,50 @@ ocaml_immediate_int_val (LONGEST val)
   return val >> 1;
 }
 
+/* Extract the raw OCaml value from a GDB value.
+
+   This is a common operation when working with OCaml values - we need to
+   read the raw tagged pointer/immediate value from GDB's value structure.
+
+   Returns the raw LONGEST value suitable for OCaml runtime analysis.  */
+
+static LONGEST
+ocaml_extract_raw_value (struct value *val, struct gdbarch *gdbarch)
+{
+  const gdb_byte *contents = val->contents ().data ();
+  int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
+  return extract_unsigned_integer (contents, ptr_size, byte_order);
+}
+
+/* Check if a type name contains a specific pattern followed by end-of-string or " @".
+
+   This is used to match OCaml type name patterns like:
+   - "int list" or "int list @ value"
+   - "char array" or "char array @ value"
+
+   Returns true if type name contains the pattern followed by '\0' or " @".  */
+
+static bool
+ocaml_type_name_has_suffix (struct type *type, const char *pattern)
+{
+  if (type == NULL)
+    return false;
+
+  const char *type_name = type->name ();
+  if (type_name == NULL)
+    return false;
+
+  /* Find the pattern in the type name.  */
+  const char *pattern_pos = strstr (type_name, pattern);
+  if (pattern_pos == NULL)
+    return false;
+
+  /* Check if followed by end-of-string or " @" (representation annotation).  */
+  const char *after = pattern_pos + strlen (pattern);
+  return (*after == '\0' || strncmp (after, " @", 2) == 0);
+}
+
 /* Read the header of an OCaml block.
 
    OCaml blocks are stored in memory with a header word immediately before
@@ -866,14 +904,11 @@ ocaml_read_discriminant_from_value (struct gdbarch *gdbarch, struct value *val,
   if (type->code () == TYPE_CODE_STRUCT)
     {
       /* Read the raw pointer value from the struct's memory.  */
-      const gdb_byte *contents = val->contents ().data ();
       int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
-      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-
       if (ptr_size > 8)
 	return -1;
 
-      val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
+      val_raw = ocaml_extract_raw_value (val, gdbarch);
 
       /* Check if this is an unboxed variant (discriminant in bit 0).  */
       if (ocaml_is_unboxed_variant (type, part))
@@ -973,8 +1008,17 @@ ocaml_get_constructor_name (struct type *type, const variant &v)
 /* Check if a type is a record type (structure with named fields).
 
    In DWARF, OCaml records are represented as DW_TAG_structure_type with
-   named members (DW_TAG_member). This function checks if the type has
-   the characteristics of a record.
+   named members (DW_TAG_member).
+
+   HEURISTIC: This function uses field name checking to detect records.
+   It checks if the struct has at least one named field. This is a heuristic
+   because it cannot distinguish between:
+   - Records with named fields: {name = "Alice"; age = 30}
+   - Tuples with accidentally named fields
+   - Other struct types that happen to have named fields
+
+   For more reliable detection, enhanced DWARF information would be needed
+   to explicitly mark record types vs tuples vs other structs.
 
    Returns true if this appears to be a record type.  */
 
@@ -988,8 +1032,9 @@ ocaml_is_record_type (struct type *type)
   if (type->code () != TYPE_CODE_STRUCT)
     return false;
 
-  /* Check if at least one field has a non-empty name.
-     Records have named fields, while tuples typically don't.  */
+  /* HEURISTIC: Check if at least one field has a non-empty name.
+     Records have named fields, while tuples typically don't.
+     WARNING: May misidentify other struct types with named fields as records.  */
   for (int i = 0; i < type->num_fields (); i++)
     {
       const char *name = type->field (i).name ();
@@ -1004,6 +1049,18 @@ ocaml_is_record_type (struct type *type)
 
    Tuples are like records but have unnamed or empty field names.
 
+   DWARF-based detection (partial): Checks variant_parts to exclude variants.
+   This correctly eliminates variant types.
+
+   HEURISTIC: After excluding variants, uses field name checking to detect tuples.
+   It checks if all fields are unnamed. This is a heuristic because:
+   - Tuples typically have unnamed fields: (1, 2, 3)
+   - But other struct types might also have unnamed fields
+   - Cannot definitively distinguish tuple from other unnamed structs
+
+   For more reliable detection, enhanced DWARF information would be needed
+   to explicitly mark tuple types.
+
    Returns true if this appears to be a tuple type.  */
 
 static bool
@@ -1016,12 +1073,14 @@ ocaml_is_tuple_type (struct type *type)
   if (type->code () != TYPE_CODE_STRUCT)
     return false;
 
-  /* If it has variant parts, it's a variant, not a tuple.  */
+  /* DWARF check: If it has variant parts, it's a variant, not a tuple.
+     This correctly excludes variant types from tuple detection.  */
   if (ocaml_get_variant_parts (type) != NULL)
     return false;
 
-  /* Check if all fields are unnamed.
-     If any field has a name, it's a record, not a tuple.  */
+  /* HEURISTIC: Check if all fields are unnamed.
+     If any field has a name, it's a record, not a tuple.
+     WARNING: May misidentify other unnamed struct types as tuples.  */
   for (int i = 0; i < type->num_fields (); i++)
     {
       const char *name = type->field (i).name ();
@@ -1044,6 +1103,18 @@ ocaml_is_tuple_type (struct type *type)
    - Type name containing "ref" (e.g., "int ref @ value")
    - Single field named "contents"
    - Structure type with one field
+
+   HEURISTIC: This function uses field name checking to detect references.
+   It checks for:
+   - Struct type with exactly one field
+   - Field named "contents"
+
+   This heuristic works well in practice because the "contents" field name
+   is distinctive to OCaml references. However, it could theoretically
+   misidentify other single-field structs with a field named "contents".
+
+   For more reliable detection, enhanced DWARF information or type name
+   checking could be added.
 
    Returns true if this is a reference type.  */
 
@@ -1071,19 +1142,7 @@ ocaml_is_array_type (struct type *type)
   /* HEURISTIC FALLBACK: Check type name for " array" pattern.
      WARNING: This may misidentify non-array types with "array" in their names.
      For accurate detection, ensure DWARF debug info is available.  */
-  const char *type_name = type->name ();
-  if (type_name == NULL)
-    return false;
-
-  /* Check if type name contains " array" (may be followed by " @ value").
-     We use strstr to find the pattern anywhere in the type name.  */
-  const char *array_pos = strstr (type_name, " array");
-  if (array_pos == NULL)
-    return false;
-
-  /* Make sure it's followed by either end-of-string or " @".  */
-  const char *after = array_pos + strlen (" array");
-  return (*after == '\0' || strncmp (after, " @", 2) == 0);
+  return ocaml_type_name_has_suffix (type, " array");
 }
 
 /* Helper: Check if a variant type has constructors with specific names.
@@ -1140,8 +1199,11 @@ ocaml_variant_has_constructors (struct type *type, const char **constructor_name
    named "[]" (empty list) and "::" (cons). This is more reliable than name
    matching as it directly checks the type structure.
 
-   Heuristic fallback: If DWARF information is unavailable or incomplete, falls
-   back to checking if the type name contains " list". This may produce false
+   DWARF-first policy: If DWARF variant_parts exist, trust them completely.
+   Only use heuristic fallback when DWARF variant information is unavailable.
+
+   Heuristic fallback: If DWARF variant information is unavailable (no variant_parts),
+   falls back to checking if the type name contains " list". This may produce false
    positives for non-list types with "list" in their names.
 
    Examples: "char list", "int list @ value", "string list", etc.  */
@@ -1152,26 +1214,22 @@ ocaml_is_list_type (struct type *type)
   if (type == NULL)
     return false;
 
-  /* DWARF-based detection: Check for variant constructors "[]" and "::".  */
-  const char *list_constructors[] = {"[]", "::"};
-  if (ocaml_variant_has_constructors (type, list_constructors, 2))
-    return true;
+  /* Check if DWARF variant information is available.  */
+  const gdb::array_view<variant_part> *parts = ocaml_get_variant_parts (type);
 
-  /* HEURISTIC FALLBACK: Check type name for " list" pattern.
-     This is less reliable but works when DWARF is incomplete.  */
-  const char *type_name = type->name ();
-  if (type_name == NULL)
-    return false;
+  /* If DWARF variant_parts exist, use them exclusively (no heuristic fallback).  */
+  if (parts != NULL && !parts->empty ())
+    {
+      /* DWARF-based detection: Check for variant constructors "[]" and "::".  */
+      const char *list_constructors[] = {"[]", "::"};
+      return ocaml_variant_has_constructors (type, list_constructors, 2);
+    }
 
-  /* Check if type name contains " list" (may be followed by " @ value").
-     We use strstr to find the pattern anywhere in the type name.  */
-  const char *list_pos = strstr (type_name, " list");
-  if (list_pos == NULL)
-    return false;
-
-  /* Make sure it's followed by either end-of-string or " @".  */
-  const char *after = list_pos + strlen (" list");
-  return (*after == '\0' || strncmp (after, " @", 2) == 0);
+  /* HEURISTIC FALLBACK: No DWARF variant information available.
+     Check type name for " list" pattern.
+     WARNING: This may misidentify non-list types with "list" in their names.
+     For accurate detection, ensure DWARF debug info is available.  */
+  return ocaml_type_name_has_suffix (type, " list");
 }
 
 static bool
@@ -1187,8 +1245,11 @@ ocaml_is_reference_type (struct type *type)
   if (type->num_fields () != 1)
     return false;
 
-  /* The field must be named "contents".
-     This is sufficient to identify references, as this structure is unique to refs.  */
+  /* HEURISTIC: Check if the field is named "contents".
+     This is sufficient to identify references in practice, as this structure
+     is distinctive to OCaml refs.
+     WARNING: Could theoretically misidentify other single-field structs
+     with a "contents" field.  */
   const char *field_name = type->field (0).name ();
   if (field_name == NULL)
     return false;
@@ -1444,10 +1505,7 @@ ocaml_print_unboxed_variant (struct value *val, struct type *type,
       LONGEST raw_val;
       if (type->code () == TYPE_CODE_STRUCT)
 	{
-	  const gdb_byte *contents = val->contents ().data ();
-	  int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
-	  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-	  raw_val = extract_unsigned_integer (contents, ptr_size, byte_order);
+	  raw_val = ocaml_extract_raw_value (val, gdbarch);
 	}
       else
 	{
@@ -1509,10 +1567,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
   if (is_unboxed)
     {
       /* Read the full 64-bit value.  */
-      const gdb_byte *contents = val->contents ().data ();
-      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
-      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-      ULONGEST packed_value = extract_unsigned_integer (contents, ptr_size, byte_order);
+      ULONGEST packed_value = ocaml_extract_raw_value (val, gdbarch);
 
       /* Find the matching variant based on discriminant.  */
       const variant *var = ocaml_find_matching_variant (part, discr);
@@ -1673,11 +1728,7 @@ ocaml_print_variant_with_type (struct value *val, struct type *type,
 
   /* Check if this value is a block (pointer) or immediate.
      This determines which enum to use for constructor name lookup.  */
-  LONGEST val_raw;
-  const gdb_byte *contents = val->contents ().data ();
-  int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
-  enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-  val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
+  LONGEST val_raw = ocaml_extract_raw_value (val, gdbarch);
   bool is_block_value = ocaml_is_block (val_raw);
 
   /* Find the reference field (field [2] in the parent struct).  */
@@ -2687,10 +2738,7 @@ ocaml_print_array_with_type (struct value *val, struct type *type,
   else if (typedef_resolved->code () == TYPE_CODE_STRUCT)
     {
       /* For struct types, extract the pointer from the first field.  */
-      const gdb_byte *contents = val->contents ().data ();
-      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
-      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-      val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
+      val_raw = ocaml_extract_raw_value (val, gdbarch);
     }
   else
     {
@@ -2786,10 +2834,7 @@ ocaml_print_tuple_with_type (struct value *val, struct type *type,
   /* Read the raw value.  */
   if (type->code () == TYPE_CODE_STRUCT)
     {
-      const gdb_byte *contents = val->contents ().data ();
-      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
-      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-      val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
+      val_raw = ocaml_extract_raw_value (val, gdbarch);
     }
   else
     {
@@ -3664,10 +3709,7 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
   if (ocaml_is_list_type (original_val_type))
     {
       /* Read the raw value to check if it's immediate (empty list).  */
-      const gdb_byte *contents = val->contents ().data ();
-      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
-      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
-      LONGEST val_raw = extract_unsigned_integer (contents, ptr_size, byte_order);
+      LONGEST val_raw = ocaml_extract_raw_value (val, gdbarch);
 
       /* If it's an immediate value (not a block), it's the empty list [].  */
       if (!ocaml_is_block (val_raw))
