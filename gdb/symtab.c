@@ -1086,6 +1086,7 @@ general_symbol_info::natural_name () const
     case language_objc:
     case language_fortran:
     case language_rust:
+    case language_ocaml:
       if (language_specific.demangled_name != nullptr)
 	return language_specific.demangled_name;
       break;
@@ -1112,6 +1113,7 @@ general_symbol_info::demangled_name () const
     case language_objc:
     case language_fortran:
     case language_rust:
+    case language_ocaml:
       dem_name = language_specific.demangled_name;
       break;
     case language_ada:

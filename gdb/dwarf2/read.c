@@ -16053,6 +16053,23 @@ new_symbol (struct die_info *die, struct type *type, struct dwarf2_cu *cu,
 	  sym->set_linkage_name (linkagename);
 	}
 
+      /* For OCaml, demangle the linkage name (or physname if no linkagename)
+	 to get the full module-qualified name.  Do this after set_linkage_name
+	 to ensure language is set.  */
+      if (cu->lang () == language_ocaml)
+	{
+	  const char *mangled = linkagename ? linkagename : physname;
+	  if (mangled != nullptr)
+	    {
+	      gdb::unique_xmalloc_ptr<char> demangled
+		= symbol_find_demangled_name (sym, mangled);
+	      if (demangled != nullptr)
+		sym->set_demangled_name (obstack_strdup (&objfile->objfile_obstack,
+							 demangled.get ()),
+					 &objfile->objfile_obstack);
+	    }
+	}
+
       /* Handle DW_AT_artificial.  */
       attr = dwarf2_attr (die, DW_AT_artificial, cu);
       if (attr != nullptr)
