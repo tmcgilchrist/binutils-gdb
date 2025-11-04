@@ -93,7 +93,8 @@ extern bool ocaml_read_block_field (struct gdbarch *gdbarch, CORE_ADDR block_add
 
 /* Print an OCaml string block.  */
 extern void ocaml_print_string (struct gdbarch *gdbarch, CORE_ADDR addr,
-				ULONGEST size, struct ui_file *stream);
+				ULONGEST size, struct ui_file *stream,
+				const struct value_print_options *options);
 
 /* OCaml block tags (used in heap blocks).
 

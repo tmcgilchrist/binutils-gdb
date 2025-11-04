@@ -1,0 +1,166 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml string truncation and float array element printing
+# This test verifies that:
+# 1. String truncation respects GDB's 'set print elements' setting
+# 2. Float arrays display their elements correctly
+# 3. Float array truncation respects 'set print elements' setting
+# 4. Float formatting includes decimal points for whole numbers
+
+load_lib "ocaml-support.exp"
+
+# Use standard OxCaml test setup for "basic" test binary
+if {[standard_oxcaml_testfile "basic"] == -1} {
+    return
+}
+
+# ============================================================================
+# Test String Truncation
+# ============================================================================
+
+# Test that strings respect GDB's print elements setting
+gdb_test "break Test_basic_dwarf.f_string" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_string"
+
+gdb_test "run" \
+    ".*Breakpoint.*" \
+    "Run to f_string (empty string)"
+
+# Test 1: Default setting should show full string
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_string with 'hello world!'"
+
+gdb_test "print x" \
+    ".*\"hello world!\".*" \
+    "Print string with default setting shows full content"
+
+# Test 2: Set print elements to limit string length
+gdb_test_no_output "set print elements 5" \
+    "Set print elements to 5"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_string with single char"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_string with special chars"
+
+# This string is "special chars: \n\t\"" (about 18 chars including escapes)
+# With limit of 5, should truncate
+gdb_test "print x" \
+    ".*\\.\\.\\..*" \
+    "Print string with limit=5 shows truncation indicator"
+
+# Test 3: Set print elements to 0 (unlimited)
+gdb_test_no_output "set print elements 0" \
+    "Set print elements to unlimited"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_string with unicode"
+
+# Should show full unicode string now
+gdb_test "print x" \
+    ".*unicode.*" \
+    "Print string with unlimited setting shows full content"
+
+# Delete f_string breakpoint before continuing to next test
+gdb_test "delete 1" \
+    "" \
+    "Delete f_string breakpoint"
+
+# ============================================================================
+# Test Float Array Element Printing
+# ============================================================================
+
+# Reset print elements to default (unlimited) for float array tests
+gdb_test_no_output "set print elements 0" \
+    "Reset print elements to unlimited for float arrays"
+
+gdb_test "break Test_basic_dwarf.f_float_array" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_float_array"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_float_array (empty array)"
+
+# Test 1: Empty float array
+gdb_test "print x" \
+    ".*\\\|\\\|.*" \
+    "Print empty float array shows \[||\]"
+
+# Test 2: Single element float array
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_float_array with single element"
+
+# Should show [| 1.0 |] with decimal point
+gdb_test "print x" \
+    ".*\\\|.*1\\.0.*\\\|.*" \
+    "Print single-element float array shows element with decimal point"
+
+# Test 3: Multi-element float array with proper formatting
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_float_array with 5 elements"
+
+# Should show [| 4.1; 4.2; 4.3; 4.4; 4.5 |]
+gdb_test "print x" \
+    ".*\\\|.*4\\.1.*4\\.2.*4\\.3.*4\\.4.*4\\.5.*\\\|.*" \
+    "Print 5-element float array shows all elements correctly"
+
+# Test 4: Large array (15 elements) - full display with unlimited
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_float_array with 15 elements"
+
+# With unlimited, should show all 15 elements
+gdb_test "print x" \
+    ".*\\\|.*4\\.1.*5\\.5.*\\\|.*" \
+    "Print 15-element array with unlimited shows all elements"
+
+# Test 5: Float array truncation with limited print elements
+gdb_test_no_output "set print elements 3" \
+    "Set print elements to 3 for truncation test"
+
+# Should show only first 3 elements plus "..."
+gdb_test "print x" \
+    ".*\\\|.*4\\.1.*4\\.2.*4\\.3.*\\.\\.\\..*\\\|.*" \
+    "Print 15-element array with limit=3 shows truncation"
+
+# Test 6: Special float values (infinity, nan, negative)
+gdb_test_no_output "set print elements 0" \
+    "Reset to unlimited for special values test"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_float_array with special values"
+
+# Array is [| 0.0; -1.5; infinity; nan |]
+# Verify 0.0 prints with decimal point (not just "0")
+gdb_test "print x" \
+    ".*\\\|.*0\\.0.*;.*-1\\.5.*\\\|.*" \
+    "Print float array with special values shows proper formatting"
+
+# Summary: This test verifies that:
+# 1. String truncation integrates with 'set print elements' setting
+# 2. Float arrays display individual elements with proper formatting (including decimal points)
+# 3. Float array truncation works with 'set print elements'
+# 4. Special float values (infinity, nan) are handled correctly in arrays

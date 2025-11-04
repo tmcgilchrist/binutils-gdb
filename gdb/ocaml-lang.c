@@ -58,23 +58,38 @@
 #include "value.h"
 #include "extract-store-integer.h"
 
-/* The name of the symbol to use to get the name of the main subprogram.  */
-/* TODO This should be the startup.S or entry for the main module. We
-   don't really have a main function like C or Rust. */
-static const char OCAML_MAIN[] = "camlDune__exe__Main";
+/* Candidate symbols for OCaml main entry points from different build systems.
+   Order matters: try Dune first (most common), then OCamlbuild, then bytecode.
+
+   TODO: Test this with real programs from different build systems to ensure
+   all entry points are correctly detected. Consider adding a GDB setting like
+   "set ocaml main-symbol <name>" to allow users to override if needed.  */
+static const char *OCAML_MAIN_CANDIDATES[] = {
+  "camlDune__exe__Main",      /* Dune build system (dune build) */
+  "camlMain",                 /* OCamlbuild or simple compilation */
+  "caml_startup",             /* Bytecode programs */
+  "caml_main",                /* Alternative native code entry */
+  NULL                        /* Sentinel */
+};
 
 /* Function returning the special symbol name used by OCaml for the main
    procedure in the main program if it is found in minimal symbol list.
    This function tries to find minimal symbols so that it finds them even
-   if the program was compiled without debugging information.  */
+   if the program was compiled without debugging information.
+
+   Tries multiple candidate symbols to support different OCaml build systems
+   (Dune, OCamlbuild, bytecode).  */
 
 const char *
 ocaml_main_name (void)
 {
-  bound_minimal_symbol msym
-    = lookup_minimal_symbol (current_program_space, OCAML_MAIN);
-  if (msym.minsym != NULL)
-    return OCAML_MAIN;
+  for (int i = 0; OCAML_MAIN_CANDIDATES[i] != NULL; i++)
+    {
+      bound_minimal_symbol msym
+	= lookup_minimal_symbol (current_program_space, OCAML_MAIN_CANDIDATES[i]);
+      if (msym.minsym != NULL)
+	return OCAML_MAIN_CANDIDATES[i];
+    }
 
   /* No known entry procedure found, the main program is probably not OCaml.  */
   return NULL;
@@ -277,11 +292,78 @@ public:
 
   const char *name_of_this () const override
   { return "self"; }
+
+  /* See language.h.  */
+
+  void emitchar (int ch, struct type *chtype,
+		 struct ui_file *stream, int quoter) const override;
+
+  /* See language.h.  */
+
+  void printstr (struct ui_file *stream, struct type *type,
+		 const gdb_byte *string, unsigned int length,
+		 const char *encoding, int force_ellipses,
+		 const struct value_print_options *options) const override;
 };
 
 /* Single instance of the OCaml language class.  */
 
 static ocaml_language ocaml_language_defn;
+
+/* Emit a single OCaml character with proper escape sequences.
+   OCaml characters are bytes (0-255) and use specific escape conventions:
+   - Standard escapes: \n \r \t \b \\ \'
+   - Decimal escapes: \DDD for non-printable characters (e.g., \000, \255)
+   - Printable ASCII (32-126) are printed as-is (except quotes and backslash)  */
+
+void
+ocaml_language::emitchar (int ch, struct type *chtype,
+			  struct ui_file *stream, int quoter) const
+{
+  /* For non-character types, use default behavior.  */
+  if (chtype->code () != TYPE_CODE_INT || chtype->length () != 1)
+    {
+      generic_emit_char (ch, chtype, stream, quoter,
+			 target_charset (chtype->arch ()));
+      return;
+    }
+
+  /* Handle special cases with backslash escapes.  */
+  if (ch == '\\' || ch == quoter)
+    gdb_printf (stream, "\\%c", ch);
+  else if (ch == '\n')
+    gdb_puts ("\\n", stream);
+  else if (ch == '\r')
+    gdb_puts ("\\r", stream);
+  else if (ch == '\t')
+    gdb_puts ("\\t", stream);
+  else if (ch == '\b')
+    gdb_puts ("\\b", stream);
+  else if (ch >= 32 && ch <= 126)
+    /* Printable ASCII - output as-is.  */
+    gdb_putc (ch, stream);
+  else
+    /* Non-printable: use OCaml's decimal escape \DDD.  */
+    gdb_printf (stream, "\\%03d", (unsigned char) ch);
+}
+
+/* Print an OCaml string with proper escape sequences and truncation support.
+   OCaml strings are UTF-8 encoded sequences of bytes.  */
+
+void
+ocaml_language::printstr (struct ui_file *stream, struct type *type,
+			  const gdb_byte *string, unsigned int length,
+			  const char *encoding, int force_ellipses,
+			  const struct value_print_options *options) const
+{
+  /* OCaml strings are UTF-8 encoded.  Use UTF-8 unless caller overrides.  */
+  const char *actual_encoding = (encoding && *encoding) ? encoding : "UTF-8";
+
+  /* Use generic string printer with OCaml's double-quote delimiter.
+     The generic printer handles truncation via options->print_max.  */
+  generic_printstr (stream, type, string, length, actual_encoding,
+		    force_ellipses, '"', 0, options);
+}
 
 /* Build all OCaml language types for the specified architecture.  */
 
@@ -602,7 +684,8 @@ ocaml_read_block_field (struct gdbarch *gdbarch, CORE_ADDR block_addr,
 
 void
 ocaml_print_string (struct gdbarch *gdbarch, CORE_ADDR addr,
-		    ULONGEST size, struct ui_file *stream)
+		    ULONGEST size, struct ui_file *stream,
+		    const struct value_print_options *options)
 {
   if (size == 0)
     {
@@ -626,15 +709,13 @@ ocaml_print_string (struct gdbarch *gdbarch, CORE_ADDR addr,
   /* The actual string length excludes the padding bytes.  */
   ULONGEST string_len = byte_size - last_byte - 1;
 
-  /* TODO Is there a more principled way to truncate a long string being printed? */
-  /* Limit the length to avoid excessive output.  */
-  const ULONGEST max_print_len = 200;
-  bool truncated = false;
-  if (string_len > max_print_len)
-    {
-      string_len = max_print_len;
-      truncated = true;
-    }
+  /* Respect GDB's print elements setting for string truncation.
+     When print_max is UINT_MAX, it means unlimited (from "set print elements 0"). */
+  ULONGEST max_print_len = (options->print_max < string_len)
+                           ? options->print_max : string_len;
+  bool truncated = (options->print_max < string_len);
+
+  string_len = max_print_len;
 
   /* Read the string content.  */
   gdb::unique_xmalloc_ptr<gdb_byte> buffer
@@ -2786,27 +2867,64 @@ ocaml_print_array_with_type (struct value *val, struct type *type,
   /* Limit array elements using options->print_max to respect user settings.  */
   ULONGEST print_limit = (options->print_max < size) ? options->print_max : size;
 
-  for (ULONGEST i = 0; i < print_limit; i++)
+  /* Check if this is a float array (elements are unboxed 64-bit doubles).
+     Float arrays store raw doubles, not tagged OCaml values.
+     Check the typedef name since DWARF represents float array elements as ocaml_value.  */
+  bool is_float_array = false;
+  if (type->name () != NULL &&
+      (strstr (type->name (), "float array") != NULL ||
+       strstr (type->name (), "float32 array") != NULL))
     {
-      if (i > 0)
-	gdb_puts ("; ", stream);
+      is_float_array = true;
+    }
 
-      LONGEST field_val;
-      if (ocaml_read_block_field (gdbarch, addr, i, &field_val))
+  if (is_float_array)
+    {
+      /* Float array: elements are raw 64-bit doubles at 8-byte intervals.  */
+      for (ULONGEST i = 0; i < print_limit; i++)
 	{
-	  /* Create a value with the proper element type for correct OCaml printing.
-	     If we successfully extracted the element type from DWARF, use it.
-	     Otherwise fall back to generic pointer type.  */
-	  struct type *value_type = (elem_type != NULL)
-	    ? elem_type
-	    : builtin_type (gdbarch)->builtin_data_ptr;
-
-	  struct value *elem_value = value_from_longest (value_type, field_val);
-	  /* Pass elem_type for DWARF-aware printing of array elements (e.g., nested variants, lists).  */
-	  ocaml_value_print_inner (elem_value, stream, recurse + 1, options, elem_type);
+	  gdb_byte buf[8];
+	  if (target_read_memory (addr + i * 8, buf, 8) == 0)
+	    {
+	      double d;
+	      memcpy (&d, buf, 8);
+	      if (i > 0)
+		gdb_puts ("; ", stream);
+	      ocaml_print_float (d, false, stream);
+	    }
+	  else
+	    {
+	      if (i > 0)
+		gdb_puts ("; ", stream);
+	      gdb_puts ("<error>", stream);
+	    }
 	}
-      else
-	gdb_puts ("<error>", stream);
+    }
+  else
+    {
+      /* Regular array: elements are tagged OCaml values.  */
+      for (ULONGEST i = 0; i < print_limit; i++)
+	{
+	  if (i > 0)
+	    gdb_puts ("; ", stream);
+
+	  LONGEST field_val;
+	  if (ocaml_read_block_field (gdbarch, addr, i, &field_val))
+	    {
+	      /* Create a value with the proper element type for correct OCaml printing.
+		 If we successfully extracted the element type from DWARF, use it.
+		 Otherwise fall back to generic pointer type.  */
+	      struct type *value_type = (elem_type != NULL)
+		? elem_type
+		: builtin_type (gdbarch)->builtin_data_ptr;
+
+	      struct value *elem_value = value_from_longest (value_type, field_val);
+	      /* Pass elem_type for DWARF-aware printing of array elements (e.g., nested variants, lists).  */
+	      ocaml_value_print_inner (elem_value, stream, recurse + 1, options, elem_type);
+	    }
+	  else
+	    gdb_puts ("<error>", stream);
+	}
     }
 
   if (print_limit < size)
@@ -3242,7 +3360,7 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
       /* Handle special block types.  */
       if (tag == OCAML_TAG_STRING)
 	{
-	  ocaml_print_string (gdbarch, addr, size, stream);
+	  ocaml_print_string (gdbarch, addr, size, stream, options);
 	  return;
 	}
       else if (tag == OCAML_TAG_DOUBLE)
@@ -3260,12 +3378,36 @@ ocaml_print_value (struct gdbarch *gdbarch, LONGEST val_raw,
 	}
       else if (tag == OCAML_TAG_DOUBLE_ARRAY)
 	{
-	  /* TODO: Print individual float array elements
-	     - Currently only shows the array size
-	     - Future work: Read and print each float element
-	     - Elements are stored as raw 64-bit floats (not tagged)
-	     - Example output: [|1.0; 2.5; 3.14|] */
-	  gdb_printf (stream, "<float array[%s]>", pulongest (size));
+	  /* Print float array elements.
+	     Float arrays (tag 254) store elements as raw 64-bit floats (not tagged).
+	     Elements are contiguous in memory after block header. */
+
+	  /* Respect GDB's print_max setting for element limit */
+	  ULONGEST print_limit = (options->print_max < size)
+	                         ? options->print_max : size;
+
+	  gdb_puts ("[|", stream);
+	  for (ULONGEST i = 0; i < print_limit; i++)
+	    {
+	      gdb_byte buf[8];
+	      if (target_read_memory (addr + i * 8, buf, 8) == 0)
+		{
+		  double d;
+		  memcpy (&d, buf, 8);
+		  if (i > 0)
+		    gdb_puts ("; ", stream);
+		  ocaml_print_float (d, false, stream);
+		}
+	      else
+		{
+		  if (i > 0)
+		    gdb_puts ("; ", stream);
+		  gdb_puts ("<error>", stream);
+		}
+	    }
+	  if (print_limit < size)
+	    gdb_puts ("; ...", stream);
+	  gdb_puts ("|]", stream);
 	  return;
 	}
       else if (tag == 0)
