@@ -32,6 +32,96 @@ gdb_test "run" \
     ".*Breakpoint.*" \
     "Start execution of unboxed tests"
 
+# Test unboxed float (float#)
+gdb_test "break Test_unboxed_dwarf.f_unboxed_float" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_float"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_float"
+
+# Test unboxed int32 (int32#)
+gdb_test "break Test_unboxed_dwarf.f_unboxed_int32" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_int32"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_int32"
+
+# Test unboxed int64 (int64#)
+gdb_test "break Test_unboxed_dwarf.f_unboxed_int64" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_int64"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_int64"
+
+# Test unboxed nativeint (nativeint#)
+gdb_test "break Test_unboxed_dwarf.f_unboxed_nativeint" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_nativeint"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_nativeint"
+
+# Test unboxed int8 (int8#)
+gdb_test "break Test_unboxed_dwarf.f_unboxed_int8" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_int8"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_int8"
+
+# Test unboxed int16 (int16#)
+gdb_test "break Test_unboxed_dwarf.f_unboxed_int16" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_int16"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_int16"
+
+# Test unboxed product: simple (float# * int32#)
+gdb_test "break Test_unboxed_dwarf.f_simple_product" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_simple_product"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_simple_product"
+
+# Test unboxed product: mixed (int * float#)
+gdb_test "break Test_unboxed_dwarf.f_mixed_product" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_mixed_product"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_mixed_product"
+
+# Test unboxed product: nested (float# * (int32# * int64#))
+gdb_test "break Test_unboxed_dwarf.f_nested_product" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_nested_product"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_nested_product"
+
+# Test unboxed product: small ints (int8# * int16# * int32#)
+gdb_test "break Test_unboxed_dwarf.f_small_int_product" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_small_int_product"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_small_int_product"
+
 # The test verifies that GDB can handle binaries with unboxed types
 # and doesn't crash when processing DWARF information for unboxed variants
 # and records

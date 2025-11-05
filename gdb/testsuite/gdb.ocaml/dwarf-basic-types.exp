@@ -68,6 +68,60 @@ gdb_test "continue" \
     ".*Breakpoint.*" \
     "Continue to f_float"
 
+# Test 5a: Float32 type
+gdb_test "break Test_basic_dwarf.f_float32" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_float32"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_float32"
+
+# Test 5b: Int32 type
+gdb_test "break Test_basic_dwarf.f_int32" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int32"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int32"
+
+# Test 5c: Int64 type
+gdb_test "break Test_basic_dwarf.f_int64" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int64"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int64"
+
+# Test 5d: Nativeint type
+gdb_test "break Test_basic_dwarf.f_nativeint" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_nativeint"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_nativeint"
+
+# Test 5e: Int8 type
+gdb_test "break Test_basic_dwarf.f_int8" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int8"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int8"
+
+# Test 5f: Int16 type
+gdb_test "break Test_basic_dwarf.f_int16" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int16"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int16"
+
 # Test 6: String type
 gdb_test "break Test_basic_dwarf.f_string" \
     "Breakpoint .* at .*" \
