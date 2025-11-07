@@ -11190,6 +11190,17 @@ read_structure_type (struct die_info *die, struct dwarf2_cu *cu)
   else
     type->set_length (0);
 
+  /* Read OCaml-specific pointer offset attribute.
+     This is used for exception structures where pointers need adjustment.
+     DW_AT_ocaml_offset_record_from_pointer = 0xC22.  */
+  attr = dwarf2_attr (die, (dwarf_attribute) 0xC22, cu);
+  if (attr != nullptr && attr->form_is_constant ())
+    {
+      /* The attribute contains a signed offset value (typically -8).  */
+      LONGEST offset = attr->constant_value (0);
+      type->set_ocaml_pointer_offset ((int) offset);
+    }
+
   maybe_set_alignment (cu, die, type);
 
   if (cu->producer_is_icc_lt_14 () && type->length () == 0)

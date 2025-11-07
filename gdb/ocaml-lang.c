@@ -57,6 +57,7 @@
 #include "valprint.h"
 #include "value.h"
 #include "extract-store-integer.h"
+#include "charset.h"
 
 /* Candidate symbols for OCaml main entry points from different build systems.
    Order matters: try Dune first (most common), then OCamlbuild, then bytecode.
@@ -324,7 +325,7 @@ ocaml_language::emitchar (int ch, struct type *chtype,
   if (chtype->code () != TYPE_CODE_INT || chtype->length () != 1)
     {
       generic_emit_char (ch, chtype, stream, quoter,
-			 target_charset (chtype->arch ()));
+			 target_charset (chtype->arch_owner ()));
       return;
     }
 
@@ -665,7 +666,8 @@ ocaml_read_block_field (struct gdbarch *gdbarch, CORE_ADDR block_addr,
   /* Assert buffer is large enough for safety.  */
   gdb_assert (ptr_size <= sizeof (buf));
 
-  /* Read the field at block_addr + (field_index * ptr_size).  */
+  /* Read the field at block_addr + (field_index * ptr_size).
+     Note: block_addr should already point to the first field (after any header).  */
   CORE_ADDR field_addr = block_addr + (field_index * ptr_size);
 
   if (target_read_memory (field_addr, buf, ptr_size) != 0)
@@ -3776,48 +3778,89 @@ ocaml_value_print_inner (struct value *val, struct ui_file *stream, int recurse,
 		  gdb_printf (stream, " }");
 		  return;  /* Successfully printed, exit exception handler.  */
 		}
-	      /* If not enough fields, fall through to check if it's an INT type.  */
+	      /* If not enough fields, fall through to check if it's an INT type or opaque struct.  */
 	    }
 
-	  /* Check if we have an ocaml_value integer to follow.  */
+	  /* Check if we have an ocaml_value integer to follow, or an opaque struct.  */
+	  LONGEST exn_ptr = 0;
 	  if (exn_field_type->code () == TYPE_CODE_INT ||
 	      exn_field_type->code () == TYPE_CODE_PTR)
 	    {
-	      /* We have an ocaml_value integer - follow it as an OCaml block pointer.  */
-	      LONGEST exn_ptr = value_as_long (exn_field_val);
+	      /* We have an ocaml_value integer - get its value.  */
+	      exn_ptr = value_as_long (exn_field_val);
+	    }
+	  else if (exn_field_type->code () == TYPE_CODE_STRUCT &&
+		   exn_field_type->num_fields () == 0)
+	    {
+	      /* Opaque struct with no fields - OxCaml encodes exception pointers this way.
+		 Read the raw bytes as an integer (ocaml_value).  */
+	      int ptr_size = gdbarch_ptr_bit (gdbarch) / TARGET_CHAR_BIT;
+	      enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
 
-	      /* Check if it's a block pointer (LSB = 0).  */
-	      if ((exn_ptr & 1) == 0)
+	      if (exn_field_type->length () == ptr_size)
 		{
-		  CORE_ADDR block_addr = (CORE_ADDR) exn_ptr;
+		  const gdb_byte *contents = exn_field_val->contents ().data ();
+		  exn_ptr = extract_unsigned_integer (contents, ptr_size, byte_order);
+		}
+	      else
+		{
+		  /* Size mismatch - print as object.  */
+		  gdb_printf (stream, "<opaque struct size mismatch>");
+		  return;
+		}
+	    }
 
-		  /* Read the name and id fields from the OCaml block.
-		     NOTE: This currently fails because OxCaml encodes exception
-		     information differently (possibly as exception IDs in a global
-		     table rather than heap-allocated structures). Further
-		     investigation needed.  */
-		  LONGEST name_val, id_val;
-		  if (ocaml_read_block_field (gdbarch, block_addr, 0, &name_val) &&
-		      ocaml_read_block_field (gdbarch, block_addr, 1, &id_val))
+	  /* Now follow the ocaml_value pointer if we got one.  */
+	  if (exn_ptr != 0 && (exn_ptr & 1) == 0)
+	    {
+	      /* It's a block pointer (LSB = 0) - follow it.
+		 Apply offset from DW_AT_ocaml_offset_record_from_pointer if present.
+		 This is typically -8 for exception structures due to OCaml heap headers.  */
+	      int pointer_offset = exn_field_type->ocaml_pointer_offset ();
+	      CORE_ADDR exn_block_addr = (CORE_ADDR) (exn_ptr + pointer_offset);
+
+	      /* Exception structure: Field(exn, 0) = constructor block
+		 Constructor structure: Field(constructor, 0) = name (string)
+		                      Field(constructor, 1) = id (int)
+
+		 Read the constructor pointer from Field(exn, 0).  */
+	      LONGEST constructor_ptr;
+	      if (ocaml_read_block_field (gdbarch, exn_block_addr, 0, &constructor_ptr))
+		{
+		  /* Check if constructor is a block pointer.  */
+		  if ((constructor_ptr & 1) == 0)
 		    {
-		      gdb_printf (stream, "{ name = ");
-		      ocaml_print_value (gdbarch, name_val, stream, recurse + 1, options);
+		      CORE_ADDR constructor_addr = (CORE_ADDR) constructor_ptr;
 
-		      gdb_printf (stream, "; id = ");
-		      ocaml_print_value (gdbarch, id_val, stream, recurse + 1, options);
+		      /* Read name and id from constructor block.  */
+		      LONGEST name_val, id_val;
+		      if (ocaml_read_block_field (gdbarch, constructor_addr, 0, &name_val) &&
+			  ocaml_read_block_field (gdbarch, constructor_addr, 1, &id_val))
+			{
+			  gdb_printf (stream, "{ name = ");
+			  ocaml_print_value (gdbarch, name_val, stream, recurse + 1, options);
 
-		      gdb_printf (stream, " }");
+			  gdb_printf (stream, "; id = ");
+			  ocaml_print_value (gdbarch, id_val, stream, recurse + 1, options);
+
+			  gdb_printf (stream, " }");
+			}
+		      else
+			{
+			  /* Failed to read constructor fields.  */
+			  gdb_printf (stream, "<object>@0x%s", phex_nz (constructor_addr, sizeof (CORE_ADDR)));
+			}
 		    }
 		  else
 		    {
-		      /* Failed to read fields - print as object address.  */
-		      gdb_printf (stream, "<object>@0x%s", phex_nz (block_addr, sizeof (CORE_ADDR)));
+		      /* Constructor is not a block - unexpected.  */
+		      gdb_printf (stream, "<immediate constructor %s>", plongest (constructor_ptr));
 		    }
 		}
 	      else
 		{
-		  /* Not a block pointer - shouldn't happen for exceptions.  */
-		  gdb_printf (stream, "<immediate value %s>", plongest (exn_ptr));
+		  /* Failed to read constructor pointer from exception.  */
+		  gdb_printf (stream, "<object>@0x%s", phex_nz (exn_block_addr, sizeof (CORE_ADDR)));
 		}
 	    }
 	  else
