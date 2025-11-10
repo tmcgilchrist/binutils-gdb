@@ -1,0 +1,287 @@
+name: GDB OCaml Tests with OxCaml
+
+on:
+  push:
+    branches: [ gdb ]
+  pull_request:
+    branches: [ gdb ]
+  workflow_dispatch:  # Allow manual triggering
+
+env:
+  # ============================================================================
+  # OXCAML CONFIGURATION
+  # ============================================================================
+  OXCAML_REPO: "tmcgilchrist/oxcaml"
+  OXCAML_BRANCH: "name_mangling_tsmc"
+  OXCAML_COMMIT: ""  # Optional: specify exact commit SHA, leave empty for branch HEAD
+  OXCAML_CONFIGURE_ARGS: "--enable-runtime5 --enable-ocaml-runlength-mangling"
+  OXCAML_CFLAGS: "-g -O2"
+  OXCAML_CXXFLAGS: "-g -O2"
+
+  # ============================================================================
+  # GDB CONFIGURATION
+  # ============================================================================
+  GDB_CONFIGURE_ARGS: "--with-python=python3 --enable-targets=all"
+
+  # ============================================================================
+  # TEST CONFIGURATION
+  # ============================================================================
+  TEST_PATTERN: "gdb.ocaml/*.exp"
+  TEST_PARALLEL_JOBS: "4"
+  TEST_TIMEOUT_MINUTES: "60"
+
+  CACHE_ENABLED: "true"
+
+jobs:
+  test-gdb-ocaml:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout GDB repository
+      uses: actions/checkout@v4
+      with:
+        path: gdb-repo
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          autoconf \
+          automake \
+          libtool \
+          bison \
+          flex \
+          texinfo \
+          python3 \
+          python3-dev \
+          libgmp-dev \
+          libmpfr-dev \
+          libmpc-dev \
+          dejagnu \
+          expect \
+          tcl \
+          libreadline-dev \
+          libncurses-dev \
+          opam
+
+    - name: Display configuration
+      run: |
+        echo "========================================="
+        echo "CI Configuration"
+        echo "========================================="
+        echo "OxCaml Repository: $OXCAML_REPO"
+        echo "OxCaml Branch:     $OXCAML_BRANCH"
+        echo "OxCaml Commit:     ${OXCAML_COMMIT:-<latest>}"
+        echo "OxCaml Configure:  $OXCAML_CONFIGURE_ARGS"
+        echo "GDB Configure:     $GDB_CONFIGURE_ARGS"
+        echo "Test Pattern:      $TEST_PATTERN"
+        echo "Parallel Jobs:     $TEST_PARALLEL_JOBS"
+        echo "========================================="
+
+    - name: Setup OCaml via opam
+      run: |
+        opam init --disable-sandboxing -y
+        opam switch create 4.14.2
+        eval $(opam env)
+        opam install -y dune.3.15.3 menhir.20231231
+
+    - name: Checkout OxCaml
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ env.OXCAML_REPO }}
+        ref: ${{ env.OXCAML_BRANCH }}
+        path: oxcaml
+
+    - name: Checkout specific OxCaml commit (if specified)
+      if: env.OXCAML_COMMIT != ''
+      run: |
+        cd oxcaml
+        git checkout ${{ env.OXCAML_COMMIT }}
+        echo "Checked out commit: $(git rev-parse HEAD)"
+
+    - name: Cache OxCaml build
+      if: env.CACHE_ENABLED == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          oxcaml-install
+          oxcaml/.git/refs/heads/${{ env.OXCAML_BRANCH }}
+        key: oxcaml-${{ runner.os }}-${{ env.OXCAML_BRANCH }}-${{ hashFiles('oxcaml/**') }}
+        restore-keys: |
+          oxcaml-${{ runner.os }}-${{ env.OXCAML_BRANCH }}-
+          oxcaml-${{ runner.os }}-
+
+    - name: Build OxCaml
+      run: |
+        eval $(opam env)
+        cd oxcaml
+
+        # Generate configure script if it doesn't exist
+        if [ ! -f configure ]; then
+          echo "Generating configure script..."
+          autoconf
+        fi
+
+        # Configure OxCaml
+        export CFLAGS="${{ env.OXCAML_CFLAGS }}"
+        export CXXFLAGS="${{ env.OXCAML_CXXFLAGS }}"
+
+        echo "Configuring OxCaml with: ${{ env.OXCAML_CONFIGURE_ARGS }}"
+        ./configure ${{ env.OXCAML_CONFIGURE_ARGS }} \
+          --prefix=${{ github.workspace }}/oxcaml-install
+
+        # Build and install
+        echo "Building OxCaml..."
+        make -j$(nproc)
+
+        echo "Installing OxCaml..."
+        make install
+
+        # Verify installation
+        echo "========================================="
+        echo "OxCaml Installation"
+        echo "========================================="
+        ${{ github.workspace }}/oxcaml-install/bin/ocamlc -version
+        ${{ github.workspace }}/oxcaml-install/bin/ocamlopt -version
+        echo "========================================="
+
+    - name: Build OxCaml test binaries
+      run: |
+        export PATH="${{ github.workspace }}/oxcaml-install/bin:$PATH"
+        cd gdb-repo/gdb/testsuite/gdb.ocaml
+
+        echo "========================================="
+        echo "Building OCaml Test Binaries"
+        echo "========================================="
+
+        # Find all OCaml test source files
+        built_count=0
+        failed_count=0
+
+        for ml_file in test_*_dwarf.ml; do
+          if [ -f "$ml_file" ]; then
+            echo "Building $ml_file..."
+            base=$(basename "$ml_file" .ml)
+
+            if ocamlopt -g -o "${base}" "$ml_file" 2>&1; then
+              echo "  ✅ Built ${base}"
+              built_count=$((built_count + 1))
+            else
+              echo "  ❌ Failed to build $ml_file"
+              failed_count=$((failed_count + 1))
+            fi
+          fi
+        done
+
+        echo "========================================="
+        echo "Build Summary: $built_count succeeded, $failed_count failed"
+        echo "========================================="
+
+        # List built binaries
+        ls -lh test_*_dwarf 2>/dev/null || true
+
+        if [ $failed_count -gt 0 ]; then
+          echo "::error::Failed to build $failed_count test binaries"
+          exit 1
+        fi
+
+    - name: Cache GDB build
+      if: env.CACHE_ENABLED == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          gdb-build
+        key: gdb-${{ runner.os }}-${{ hashFiles('gdb-repo/gdb/**/*.c', 'gdb-repo/gdb/**/*.h') }}
+        restore-keys: |
+          gdb-${{ runner.os }}-
+
+    - name: Configure GDB
+      run: |
+        mkdir -p gdb-build
+        cd gdb-build
+
+        echo "Configuring GDB with: ${{ env.GDB_CONFIGURE_ARGS }}"
+        ../gdb-repo/configure ${{ env.GDB_CONFIGURE_ARGS }} \
+          --with-separate-debug-dir=/usr/lib/debug
+
+    - name: Build GDB
+      run: |
+        cd gdb-build
+        echo "Building GDB with $(nproc) parallel jobs..."
+        make -j$(nproc)
+        echo "✅ GDB build complete"
+
+    - name: Run GDB OCaml tests
+      timeout-minutes: ${{ fromJSON(env.TEST_TIMEOUT_MINUTES) }}
+      run: |
+        cd gdb-build/gdb/testsuite
+
+        echo "========================================="
+        echo "Running GDB OCaml Tests"
+        echo "========================================="
+        echo "Test pattern: ${{ env.TEST_PATTERN }}"
+        echo "Parallel jobs: ${{ env.TEST_PARALLEL_JOBS }}"
+        echo "========================================="
+
+        # Run tests with parallel execution
+        make check RUNTESTFLAGS="${{ env.TEST_PATTERN }}" \
+          -j${{ env.TEST_PARALLEL_JOBS }} \
+          || true  # Don't fail on test failures, we'll check the summary
+
+        # Display summary
+        echo ""
+        echo "========================================="
+        echo "Test Summary"
+        echo "========================================="
+        if [ -f gdb.sum ]; then
+          sed -n '/=== gdb Summary ===/,$ p' gdb.sum
+        else
+          echo "❌ No test summary file found!"
+          exit 1
+        fi
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: gdb-ocaml-test-results
+        path: |
+          gdb-build/gdb/testsuite/gdb.sum
+          gdb-build/gdb/testsuite/gdb.log
+        retention-days: 30
+
+    - name: Check test results
+      run: |
+        cd gdb-build/gdb/testsuite
+
+        # Parse test results
+        if [ -f gdb.sum ]; then
+          passes=$(grep -c "^PASS:" gdb.sum || echo "0")
+          failures=$(grep -c "^FAIL:" gdb.sum || echo "0")
+          unsupported=$(grep -c "^UNSUPPORTED:" gdb.sum || echo "0")
+
+          echo ""
+          echo "========================================="
+          echo "📊 Test Results Summary"
+          echo "========================================="
+          echo "   ✅ Passes:      $passes"
+          echo "   ❌ Failures:    $failures"
+          echo "   ⚠️  Unsupported: $unsupported"
+          echo "========================================="
+
+          # Fail if there are failures
+          if [ "$failures" -gt 0 ]; then
+            echo ""
+            echo "::error::$failures test(s) failed!"
+            echo ""
+            echo "Failed tests:"
+            grep "^FAIL:" gdb.sum || true
+            exit 1
+          fi
+
+          echo "::notice::All $passes tests passed! 🎉"
+        else
+          echo "::error::No test summary file found"
+          exit 1
+        fi
