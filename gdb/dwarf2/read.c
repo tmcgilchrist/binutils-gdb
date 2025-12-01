@@ -11240,6 +11240,17 @@ read_structure_type (struct die_info *die, struct dwarf2_cu *cu)
 	type->set_length (0);
     }
 
+  /* Read OCaml-specific pointer offset attribute.
+     This is used for exception structures where pointers need adjustment.
+     DW_AT_ocaml_offset_record_from_pointer = 0xC22.  */
+  attr = dwarf2_attr (die, (dwarf_attribute) 0xC22, cu);
+  if (attr != nullptr && attr->form_is_constant ())
+    {
+      /* The attribute contains a signed offset value (typically -8).  */
+      LONGEST offset = attr->constant_value (0);
+      type->set_ocaml_pointer_offset ((int) offset);
+    }
+
   maybe_set_alignment (cu, die, type);
 
   if (cu->producer_is_icc_lt_14 () && type->length () == 0)
@@ -15792,6 +15803,9 @@ dwarf_lang_to_enum_language (ULONGEST lang)
     case DW_LANG_OpenCL:
       language = language_opencl;
       break;
+    case DW_LANG_OCaml:
+      language = language_ocaml;
+      break;
     case DW_LANG_Cobol74:
     case DW_LANG_Cobol85:
     default:
@@ -16183,6 +16197,23 @@ new_symbol (struct die_info *die, struct type *type, struct dwarf2_cu *cu,
 	    sym->set_demangled_name (physname, &objfile->objfile_obstack);
 
 	  sym->set_linkage_name (linkagename);
+	}
+
+      /* For OCaml, demangle the linkage name (or physname if no linkagename)
+	 to get the full module-qualified name.  Do this after set_linkage_name
+	 to ensure language is set.  */
+      if (cu->lang () == language_ocaml)
+	{
+	  const char *mangled = linkagename ? linkagename : physname;
+	  if (mangled != nullptr)
+	    {
+	      gdb::unique_xmalloc_ptr<char> demangled
+		= symbol_find_demangled_name (sym, mangled);
+	      if (demangled != nullptr)
+		sym->set_demangled_name (obstack_strdup (&objfile->objfile_obstack,
+							 demangled.get ()),
+					 &objfile->objfile_obstack);
+	    }
 	}
 
       /* Handle DW_AT_artificial.  */

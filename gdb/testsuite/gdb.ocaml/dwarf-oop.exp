@@ -1,0 +1,217 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml DWARF 5 integration - Object-Oriented Programming features
+# Tests that GDB correctly handles OCaml objects, classes, inheritance, methods
+
+load_lib "ocaml-support.exp"
+
+# Use standard OxCaml test setup for "oop" test binary
+if {[standard_oxcaml_testfile "oop"] == -1} {
+    return
+}
+
+# Test 1: Start function
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_start" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_start"
+
+gdb_test "run" \
+    ".*Breakpoint.*" \
+    "Run to f_start"
+
+# Test 2: Simple objects with methods
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_simple_object" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_simple_object"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_simple_object"
+
+# Test 3: Mutable object state
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_mutable_object" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_mutable_object"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_mutable_object (1)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_mutable_object call 2 after increment"
+
+# Test 4: Class instances
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_class_instance" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_class_instance"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_class_instance (1)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_class_instance call 2 after increments"
+
+# Test 5: Class with constructor parameters
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_point_class" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_point_class"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_point_class (1)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_point_class call 2 after move"
+
+# Test 6: Base class
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_base_class" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_base_class"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_base_class"
+
+# Test 7: Derived class (Circle)
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_derived_class" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_derived_class"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_derived_class"
+
+# Test 8: Derived class (Rectangle)
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_rectangle_class" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_rectangle_class"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_rectangle_class"
+
+# Test 9: Method overriding
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_overridden_method" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_overridden_method"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_overridden_method (1)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_overridden_method call 2 after hitting limit"
+
+# Test 10: Polymorphic objects
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_polymorphic_object" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_polymorphic_object"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_polymorphic_object (shape)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_polymorphic_object call 2 with circle"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_polymorphic_object call 3 with rectangle"
+
+# Test 11: Virtual methods (dog class)
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_virtual_class_dog" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_virtual_class_dog"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_virtual_class_dog"
+
+# Test 12: Virtual methods (cat class)
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_virtual_class_cat" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_virtual_class_cat"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_virtual_class_cat"
+
+# Test 13: Private methods
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_private_methods" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_private_methods"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_private_methods (1)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_private_methods call 2 after increments"
+
+# Test 14: Multiple parameters
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_multi_param_class" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_multi_param_class"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_multi_param_class (10, 5)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_multi_param_class call 2 with 100 and 25"
+
+# Test 15: Self reference
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_self_reference" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_self_reference"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_self_reference (1)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_self_reference call 2 after chained increments"
+
+# Test 16: Object cloning
+gdb_test "break Test_oop_dwarf.Test_oop_dwarf.f_cloneable_object" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_cloneable_object"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_cloneable_object (original)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_cloneable_object call 2 with cloned object"
+
+# Summary: This test verifies that:
+# 1. GDB can set breakpoints on functions with object/class type parameters
+# 2. Object and class type names are read correctly from DWARF
+# 3. Simple objects, classes, and inheritance work
+# 4. Method overriding and virtual methods work
+# 5. Private methods and polymorphic objects work
+# 6. Self reference and object cloning work
+# 7. Program execution through OOP code works correctly

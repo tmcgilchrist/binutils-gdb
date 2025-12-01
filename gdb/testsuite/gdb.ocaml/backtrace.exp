@@ -1,0 +1,86 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml backtrace with demangled function names.
+# This test verifies that:
+# 1. Function names are properly demangled in backtraces
+# 2. Module paths are correctly displayed
+# 3. The 'set print demangle' setting works correctly
+
+load_lib "ocaml-support.exp"
+
+# Use standard OxCaml test setup for "callstack" test binary
+if {[standard_oxcaml_testfile "callstack"] == -1} {
+    return
+}
+
+# Set a breakpoint at the leaf function where backtrace will be examined
+if {![runto "Test_callstack_dwarf.f_leaf"]} {
+    untested "could not run to Test_callstack_dwarf.f_leaf"
+    return -1
+}
+
+# Test 1: Backtrace with default settings (demangling should be ON)
+gdb_test "backtrace" \
+    [multi_line \
+	"#0\\s+\[^\r\n\]*Test_callstack_dwarf\\.f_leaf\[^\r\n\]*" \
+	"#1\\s+\[^\r\n\]*Test_callstack_dwarf\\.f_countdown\[^\r\n\]*" \
+	".*"] \
+    "backtrace with demangling (default)"
+
+# Test 2: Verify 'frame' command shows demangled name
+gdb_test "frame" \
+    ".*Test_callstack_dwarf\\.f_leaf.*" \
+    "frame command shows demangled function name"
+
+# Test 3: Turn off demangling and verify mangled names appear
+gdb_test_no_output "set print demangle off" \
+    "disable demangling"
+
+# With demangling off, we should see mangled _OM* names
+gdb_test "backtrace" \
+    [multi_line \
+	"#0\\s+\[^\r\n\]*_OM20Test_callstack_dwarfF6f_leaf\[^\r\n\]*" \
+	"#1\\s+\[^\r\n\]*_OM20Test_callstack_dwarfF11f_countdown\[^\r\n\]*" \
+	".*"] \
+    "backtrace with demangling off"
+
+gdb_test "frame" \
+    ".*_OM20Test_callstack_dwarfF6f_leaf.*" \
+    "frame command shows mangled name"
+
+# Test 4: Re-enable demangling and verify demangled names return
+gdb_test_no_output "set print demangle on" \
+    "re-enable demangling"
+
+gdb_test "backtrace" \
+    [multi_line \
+	"#0\\s+\[^\r\n\]*Test_callstack_dwarf\\.f_leaf\[^\r\n\]*" \
+	"#1\\s+\[^\r\n\]*Test_callstack_dwarf\\.f_countdown\[^\r\n\]*" \
+	".*"] \
+    "backtrace with demangling re-enabled"
+
+# Test 5: Test backtrace with limited depth
+gdb_test "backtrace 2" \
+    [multi_line \
+	"#0\\s+\[^\r\n\]*Test_callstack_dwarf\\.f_leaf\[^\r\n\]*" \
+	"#1\\s+\[^\r\n\]*Test_callstack_dwarf\\.f_countdown\[^\r\n\]*" \
+	".*"] \
+    "backtrace with limited depth shows demangled names"
+
+# Test 6: Test 'info frame' command
+gdb_test "info frame" \
+    ".*Test_callstack_dwarf\\.f_leaf.*" \
+    "info frame shows demangled function name"

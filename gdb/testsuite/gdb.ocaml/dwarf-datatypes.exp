@@ -1,0 +1,120 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml DWARF 5 integration - Data types
+# Tests variants, records, unboxed types, polymorphic variants, and exceptions
+
+load_lib "ocaml-support.exp"
+
+# Use standard OxCaml test setup for "datatypes" test binary
+if {[standard_oxcaml_testfile "datatypes"] == -1} {
+    return
+}
+
+# Test 1: Simple variants with constructor names
+gdb_test "break Test_datatypes_dwarf.f_simple_variant" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_simple_variant"
+
+gdb_test "run" \
+    ".*Breakpoint.*" \
+    "Run to f_simple_variant"
+
+# Continue to each variant test case
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to variant A"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to variant B"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to variant C"
+
+# Test 2: Complex variants with nested types
+gdb_test "break Test_datatypes_dwarf.f_complex_variant" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_complex_variant"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to complex variant"
+
+# Test 3: Basic records
+gdb_test "break Test_datatypes_dwarf.f_basic_record" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_basic_record"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to basic record"
+
+# Test 4: Unboxed variants
+gdb_test "break Test_datatypes_dwarf.f_unboxed_variant_float" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_variant_float"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to unboxed variant float"
+
+gdb_test "break Test_datatypes_dwarf.f_unboxed_variant_int" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_variant_int"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to unboxed variant int"
+
+# Test 5: Unboxed records
+gdb_test "break Test_datatypes_dwarf.f_unboxed_record_simple" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_record_simple"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to unboxed record simple"
+
+# Test 6: Polymorphic variants
+gdb_test "break Test_datatypes_dwarf.f_poly_variant" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_poly_variant"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to polymorphic variant"
+
+# Test 7: Exceptions
+gdb_test "break Test_datatypes_dwarf.f_exception_specific" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_exception_specific"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to exception handling"
+
+# Test 8: Nested variants (tree structures)
+gdb_test "break Test_datatypes_dwarf.f_tree" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_tree"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to tree structure"
+
+# Success message
+pass "OCaml DWARF datatypes test completed successfully"

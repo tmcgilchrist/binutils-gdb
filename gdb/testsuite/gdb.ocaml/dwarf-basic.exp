@@ -1,0 +1,47 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml DWARF 5 integration - Phase 1 features
+# Tests basic variant and record type printing with DWARF information
+
+load_lib "ocaml-support.exp"
+
+# Use custom OxCaml binary path (not the standard test suite binaries)
+set oxcaml_binary "/home/tsmc/oxcaml-hacking/demo.exe"
+
+# Check binary exists and has DWARF, then load it
+if {![check_oxcaml_binary_exists $oxcaml_binary]} {
+    return
+}
+if {![check_binary_has_dwarf $oxcaml_binary]} {
+    return
+}
+if {[prepare_for_oxcaml_testing $oxcaml_binary] != 0} {
+    return
+}
+
+# Test 1: Check that GDB recognizes the OCaml language from DWARF
+gdb_test "show language" \
+    {The current source language is "ocaml".*} \
+    "GDB recognizes OCaml language from DWARF"
+
+# Test 2: Check that info functions doesn't crash with OCaml binaries
+# Use a more specific pattern to avoid buffer overflow from listing all functions
+gdb_test "info functions camlDemo" \
+    ".*caml.*" \
+    "Can list OCaml functions without crashing"
+
+# Note: Expression evaluation tests are in expression.exp
+# These basic tests just verify the DWARF infrastructure works correctly

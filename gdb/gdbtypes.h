@@ -1020,6 +1020,12 @@ struct main_type
 
   /* * Contains all dynamic type properties.  */
   struct dynamic_prop_list *dyn_prop_list;
+
+  /* * OCaml-specific: Offset to apply when dereferencing pointers to this type.
+     Set from DW_AT_ocaml_offset_record_from_pointer DWARF attribute (0xC22).
+     This is typically -8 for exception structures to account for OCaml's heap
+     block headers. Zero means no offset. */
+  int ocaml_pointer_offset;
 };
 
 /* * Number of bits allocated for alignment.  */
@@ -1600,6 +1606,19 @@ struct type
   /* * Core type, shared by a group of qualified types.  */
 
   struct main_type *main_type;
+
+  /* * Get the OCaml pointer offset for this type.  This is typically -8
+     for OCaml exception structures due to heap block headers.  */
+  int ocaml_pointer_offset () const
+  {
+    return this->main_type->ocaml_pointer_offset;
+  }
+
+  /* * Set the OCaml pointer offset for this type.  */
+  void set_ocaml_pointer_offset (int offset)
+  {
+    this->main_type->ocaml_pointer_offset = offset;
+  }
 };
 
 struct fn_fieldlist

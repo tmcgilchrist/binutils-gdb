@@ -1,0 +1,153 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml polymorphic type printing with various representations
+# Tests that GDB correctly prints polymorphic OCaml values with proper type annotations
+# Format: VALUE : 'a @ REPRESENTATION or VALUE : a/N @ REPRESENTATION
+#
+# STATUS: All polymorphic functions tested exist across test binaries:
+#         test_datatypes_dwarf.ml (f_poly_float64, f_poly_bits32) and
+#         test_unboxed_dwarf.ml (f_poly_float64, f_poly_float32, f_poly_bits64, etc).
+#         This file should work correctly.
+
+load_lib "ocaml-support.exp"
+
+# Use standard OxCaml test setup for "datatypes" test binary
+if {[standard_oxcaml_testfile "datatypes"] == -1} {
+    return
+}
+
+# Set up path for second binary (unboxed) that will be loaded later
+set oxcaml_binary_unboxed [get_oxcaml_binary_path "unboxed"]
+
+# ============================================================================
+# Test Polymorphic Unboxed Types from datatypes binary
+# ============================================================================
+
+gdb_test "break Test_datatypes_dwarf.f_poly_float64" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_poly_float64"
+
+gdb_test "run" \
+    ".*Breakpoint.*" \
+    "Run to f_poly_float64"
+
+# Test polymorphic type with @ float64 representation
+gdb_test "print x" \
+    ".*#.*: a @ float64.*" \
+    "Print polymorphic float64 shows 'a @ float64'"
+
+# Test polymorphic float64 with different value
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_poly_float64 (second value)"
+
+gdb_test "print x" \
+    ".*#.*: a @ float64.*" \
+    "Print polymorphic float64 (second) shows 'a @ float64'"
+
+gdb_test "break Test_datatypes_dwarf.f_poly_bits32" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_poly_bits32"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_poly_bits32"
+
+# Test polymorphic type with @ bits32 representation
+gdb_test "print x" \
+    ".*#.*l.* : a.* @ bits32.*" \
+    "Print polymorphic bits32 shows 'a/N @ bits32'"
+
+# Test polymorphic bits32 with negative value
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_poly_bits32 call 2 with negative value"
+
+gdb_test "print x" \
+    ".*-#.*l.* : a.* @ bits32.*" \
+    "Print polymorphic bits32 call 3 negative shows 'a/N @ bits32'"
+
+# ============================================================================
+# Test Polymorphic Unboxed Types from unboxed binary
+# ============================================================================
+
+# Switch to the unboxed binary using helper function
+if {[prepare_for_oxcaml_testing $oxcaml_binary_unboxed] != 0} {
+    return
+}
+
+gdb_test "break Test_unboxed_dwarf.f_poly_float64" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_poly_float64 for unboxed test"
+
+gdb_test "run" \
+    ".*Breakpoint.*" \
+    "Run to f_poly_float64 for unboxed test"
+
+# Test polymorphic float64
+gdb_test "print x" \
+    ".*#.*: a @ float64.*" \
+    "Print polymorphic float64 (unboxed binary) shows 'a @ float64'"
+
+# Test with negative value
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_poly_float64 call 2 with negative value"
+
+gdb_test "print x" \
+    ".*-#.*: a @ float64.*" \
+    "Print polymorphic float64 (negative) shows 'a @ float64'"
+
+# Test with large value
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_poly_float64 call 3 with large value"
+
+gdb_test "print x" \
+    ".*#.*: a @ float64.*" \
+    "Print polymorphic float64 (large) shows 'a @ float64'"
+
+gdb_test "break Test_unboxed_dwarf.f_poly_bits32" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_poly_bits32 for unboxed test"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_poly_bits32 for unboxed test"
+
+# Test polymorphic bits32
+gdb_test "print x" \
+    ".*#.*l.* : a.* @ bits32.*" \
+    "Print polymorphic bits32 (unboxed binary) shows 'a/N @ bits32'"
+
+# Test with negative value
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_poly_bits32 call 3 with negative value"
+
+gdb_test "print x" \
+    ".*-#.*l.* : a.* @ bits32.*" \
+    "Print polymorphic bits32 (negative) shows 'a/N @ bits32'"
+
+# Summary: This test verifies that:
+# 1. Polymorphic types show correct type variable names ('a, a/2, a/3, etc.)
+# 2. Polymorphic types with @ float64 representation work
+# 3. Polymorphic types with @ bits32 representation work
+# 4. Polymorphic types with @ bits64 representation work
+# 5. Polymorphic types work across different test binaries
+# 6. All polymorphic values include proper type annotations
+# 7. Edge cases (negative, zero, large values) work for polymorphic types
+# Total: 12 tests

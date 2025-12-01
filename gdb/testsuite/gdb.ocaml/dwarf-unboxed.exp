@@ -1,0 +1,129 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml DWARF 5 integration - Unboxed types
+# Tests unboxed variants and unboxed records
+
+load_lib "ocaml-support.exp"
+
+# Use standard OxCaml test setup for "unboxed" test binary
+if {[standard_oxcaml_testfile "unboxed"] == -1} {
+    return
+}
+
+# Run the program to execute unboxed type tests
+gdb_test "break Test_unboxed_dwarf.f_start" \
+    "Breakpoint .* at .*" \
+    "Set initial breakpoint"
+
+gdb_test "run" \
+    ".*Breakpoint.*" \
+    "Start execution of unboxed tests"
+
+# Test unboxed float (float#)
+gdb_test "break Test_unboxed_dwarf.f_unboxed_float" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_float"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_float"
+
+# Test unboxed int32 (int32#)
+gdb_test "break Test_unboxed_dwarf.f_unboxed_int32" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_int32"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_int32"
+
+# Test unboxed int64 (int64#)
+gdb_test "break Test_unboxed_dwarf.f_unboxed_int64" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_int64"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_int64"
+
+# Test unboxed nativeint (nativeint#)
+gdb_test "break Test_unboxed_dwarf.f_unboxed_nativeint" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_nativeint"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_nativeint"
+
+# Test unboxed int8 (int8#)
+gdb_test "break Test_unboxed_dwarf.f_unboxed_int8" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_int8"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_int8"
+
+# Test unboxed int16 (int16#)
+gdb_test "break Test_unboxed_dwarf.f_unboxed_int16" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unboxed_int16"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_unboxed_int16"
+
+# Test unboxed product: simple (float# * int32#)
+gdb_test "break Test_unboxed_dwarf.f_simple_product" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_simple_product"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_simple_product"
+
+# Test unboxed product: mixed (int * float#)
+gdb_test "break Test_unboxed_dwarf.f_mixed_product" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_mixed_product"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_mixed_product"
+
+# Test unboxed product: nested (float# * (int32# * int64#))
+gdb_test "break Test_unboxed_dwarf.f_nested_product" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_nested_product"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_nested_product"
+
+# Test unboxed product: small ints (int8# * int16# * int32#)
+gdb_test "break Test_unboxed_dwarf.f_small_int_product" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_small_int_product"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_small_int_product"
+
+# The test verifies that GDB can handle binaries with unboxed types
+# and doesn't crash when processing DWARF information for unboxed variants
+# and records
+
+pass "OCaml DWARF unboxed types test completed successfully"

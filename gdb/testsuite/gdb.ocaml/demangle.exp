@@ -1,0 +1,94 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test support for OCaml demangling.  The tests here intentionally do not
+# require an OCaml compiler, it simply calls the internal demangler with
+# synthesized strings and tests the results.
+
+# OCaml mangling follows the OxCaml convention where symbols start with _OM
+# followed by encoded module paths and function names.
+
+### Utility function for testing demangling
+proc test_ocaml_demangling {test result} {
+    gdb_test_exact "demangle -l ocaml $test" $result $test
+}
+
+proc test_ocaml_demangling_tests {} {
+
+    # Test OCaml demangler with simple module.function names
+    test_ocaml_demangling "_OM11Stdlib__FunF4flip_9_code" "Stdlib__Fun.flip"
+    test_ocaml_demangling "_OM11Stdlib__FunF5const_7_code" "Stdlib__Fun.const"
+    test_ocaml_demangling "_OM11Stdlib__FunF7compose_8_code" "Stdlib__Fun.compose"
+
+    # Test simple module functions
+    test_ocaml_demangling "_OM11Stdlib__IntF3abs_9_code" "Stdlib__Int.abs"
+    test_ocaml_demangling "_OM11Stdlib__IntF3min_11_code" "Stdlib__Int.min"
+    test_ocaml_demangling "_OM11Stdlib__IntF3max_12_code" "Stdlib__Int.max"
+
+    # Test Stdlib__Obj module
+    test_ocaml_demangling "_OM11Stdlib__ObjF4size_32_code" "Stdlib__Obj.size"
+    test_ocaml_demangling "_OM11Stdlib__ObjF5field_33_code" "Stdlib__Obj.field"
+
+    # Test nested modules (Module.Submodule.function)
+    test_ocaml_demangling "_OM11Stdlib__ObjM9EphemeronF6create_41_code" \
+        "Stdlib__Obj.Ephemeron.create"
+    test_ocaml_demangling "_OM11Stdlib__ObjM9EphemeronF6length_42_code" \
+        "Stdlib__Obj.Ephemeron.length"
+    test_ocaml_demangling "_OM11Stdlib__ObjM9EphemeronF7get_key_44_code" \
+        "Stdlib__Obj.Ephemeron.get_key"
+
+    # Test longer nested module paths
+    test_ocaml_demangling "_OM11Stdlib__ObjM21Extension_constructorF2id_40_code" \
+        "Stdlib__Obj.Extension_constructor.id"
+    test_ocaml_demangling "_OM11Stdlib__ObjM21Extension_constructorF4name_39_code" \
+        "Stdlib__Obj.Extension_constructor.name"
+    test_ocaml_demangling "_OM11Stdlib__ObjM16Uniform_or_mixedF4repr_50_code" \
+        "Stdlib__Obj.Uniform_or_mixed.repr"
+    test_ocaml_demangling "_OM11Stdlib__ObjM16Uniform_or_mixedF10is_uniform_51_code" \
+        "Stdlib__Obj.Uniform_or_mixed.is_uniform"
+
+    # Test partial application markers
+    test_ocaml_demangling "_OM11Stdlib__ObjP_29_code" \
+        "Stdlib__Obj(partially_applied)"
+    test_ocaml_demangling "_OM11Stdlib__IntF5equalP_2_code" \
+        "Stdlib__Int.equal(partially_applied)"
+    test_ocaml_demangling "_OM11Stdlib__IntF7compareP_3_code" \
+        "Stdlib__Int.compare(partially_applied)"
+    test_ocaml_demangling "_OM13Stdlib__ArrayP_69_code" \
+        "Stdlib__Array(partially_applied)"
+
+    # Test anonymous functions with file location information
+    test_ocaml_demangling "_OM11Stdlib__FunLu17D2e_funml_29_1374_11_code" \
+        "Stdlib__Fun.fn(fun.ml:29:1374)"
+    test_ocaml_demangling "_OM11Stdlib__SeqF4dropLu18D2e_seqml_397_9284_198_code" \
+        "Stdlib__Seq.drop.fn(seq.ml:397:9284)"
+    test_ocaml_demangling "_OM11Stdlib__SeqF4onceLu19D2e_seqml_474_11120_213_code" \
+        "Stdlib__Seq.once.fn(seq.ml:474:11120)"
+
+    # Test CamlinternalLazy module (internal runtime module)
+    test_ocaml_demangling "_OM16CamlinternalLazyF9force_gen_183_code" \
+        "CamlinternalLazy.force_gen"
+
+    # Test CamlinternalFormat module with nested function
+    test_ocaml_demangling "_OM18CamlinternalFormatF10bprint_fmt_321_code" \
+        "CamlinternalFormat.bprint_fmt"
+    test_ocaml_demangling "_OM18CamlinternalFormatF10bprint_fmtF7fmtiter_322_code" \
+        "CamlinternalFormat.bprint_fmt.fmtiter"
+}
+
+gdb_exit
+gdb_start
+
+test_ocaml_demangling_tests

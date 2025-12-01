@@ -1,0 +1,170 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml DWARF 5 integration - Basic types
+# Tests unit, bool, int, char, float, string, arrays, lists, options
+
+load_lib "ocaml-support.exp"
+
+# Use standard OxCaml test setup for "basic" test binary
+if {[standard_oxcaml_testfile "basic"] == -1} {
+    return
+}
+
+# Test 1: Unit type
+gdb_test "break Test_basic_dwarf.f_unit" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_unit"
+
+gdb_test "run" \
+    ".*Breakpoint.*" \
+    "Run to f_unit"
+
+# Test 2: Bool type
+gdb_test "break Test_basic_dwarf.f_bool" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_bool"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_bool"
+
+# Test 3: Int type
+gdb_test "break Test_basic_dwarf.f_int" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int"
+
+# Test 4: Char type
+gdb_test "break Test_basic_dwarf.f_char" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_char"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_char"
+
+# Test 5: Float type
+gdb_test "break Test_basic_dwarf.f_float" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_float"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_float"
+
+# Test 5a: Float32 type
+gdb_test "break Test_basic_dwarf.f_float32" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_float32"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_float32"
+
+# Test 5b: Int32 type
+gdb_test "break Test_basic_dwarf.f_int32" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int32"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int32"
+
+# Test 5c: Int64 type
+gdb_test "break Test_basic_dwarf.f_int64" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int64"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int64"
+
+# Test 5d: Nativeint type
+gdb_test "break Test_basic_dwarf.f_nativeint" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_nativeint"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_nativeint"
+
+# Test 5e: Int8 type
+gdb_test "break Test_basic_dwarf.f_int8" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int8"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int8"
+
+# Test 5f: Int16 type
+gdb_test "break Test_basic_dwarf.f_int16" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int16"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int16"
+
+# Test 6: String type
+gdb_test "break Test_basic_dwarf.f_string" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_string"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_string"
+
+# Test 7: Array type
+gdb_test "break Test_basic_dwarf.f_array" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_array"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_array"
+
+# Test 8: List type
+gdb_test "break Test_basic_dwarf.f_list" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_list"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_list"
+
+# Test 9: Option type
+gdb_test "break Test_basic_dwarf.f_option" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_option"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_option"
+
+# Test 10: Float array type
+gdb_test "break Test_basic_dwarf.f_float_array" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_float_array"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_float_array"
+
+pass "OCaml DWARF basic types test completed successfully"

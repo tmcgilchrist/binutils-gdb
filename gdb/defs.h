@@ -123,6 +123,7 @@ enum language
     language_asm,		/* Assembly language */
     language_pascal,		/* Pascal */
     language_opencl,		/* OpenCL */
+    language_ocaml,		/* OCaml */
     language_minimal,		/* All other languages, minimal support only */
     language_ada,		/* Ada */
     nr_languages

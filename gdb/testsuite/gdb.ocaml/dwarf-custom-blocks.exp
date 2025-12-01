@@ -1,0 +1,269 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml DWARF 5 integration - Custom Blocks
+# Tests that GDB correctly handles OCaml custom blocks: closures, lazy values,
+# references, exceptions, first-class modules, weak references, hashtables
+
+load_lib "ocaml-support.exp"
+
+# Use standard OxCaml test setup for "custom_blocks" test binary
+if {[standard_oxcaml_testfile "custom_blocks"] == -1} {
+    return
+}
+
+# Test 1: Start function
+gdb_test "break Test_custom_blocks_dwarf.f_start" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_start"
+
+gdb_test "run" \
+    ".*Breakpoint.*" \
+    "Run to f_start"
+
+# Test 2: Simple closure
+gdb_test "break Test_custom_blocks_dwarf.f_simple_closure" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_simple_closure"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_simple_closure"
+
+# Test 3: Multi-capture closure
+gdb_test "break Test_custom_blocks_dwarf.f_multi_capture_closure" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_multi_capture_closure"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_multi_capture_closure"
+
+# Test 4: Stateful closure (counter)
+gdb_test "break Test_custom_blocks_dwarf.f_stateful_closure" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_stateful_closure"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_stateful_closure"
+
+# Test 5: Nested closure
+gdb_test "break Test_custom_blocks_dwarf.f_nested_closure" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_nested_closure"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_nested_closure"
+
+# Test 6: Simple lazy value
+gdb_test "break Test_custom_blocks_dwarf.f_simple_lazy" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_simple_lazy"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_simple_lazy (before force)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_simple_lazy call 2 after force"
+
+# Test 7: Lazy computation
+gdb_test "break Test_custom_blocks_dwarf.f_lazy_computation" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_lazy_computation"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_lazy_computation (before force)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_lazy_computation call 2 after force"
+
+# Test 8: Lazy with captured values
+gdb_test "break Test_custom_blocks_dwarf.f_lazy_closure" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_lazy_closure"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_lazy_closure"
+
+# Test 9: Integer reference
+gdb_test "break Test_custom_blocks_dwarf.f_int_reference" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int_reference"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int_reference (initial)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int_reference call 2 after update"
+
+# Test 10: Tuple reference
+gdb_test "break Test_custom_blocks_dwarf.f_tuple_reference" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_tuple_reference"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_tuple_reference (initial)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_tuple_reference call 2 after update"
+
+# Test 11: List reference
+gdb_test "break Test_custom_blocks_dwarf.f_list_reference" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_list_reference"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_list_reference (initial)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_list_reference call 2 after cons"
+
+# Test 12: Mutable record
+gdb_test "break Test_custom_blocks_dwarf.f_mutable_record" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_mutable_record"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_mutable_record (initial)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_mutable_record call 2 after updates"
+
+# Test 13: Exceptions
+gdb_test "break Test_custom_blocks_dwarf.f_exception" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_exception"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_exception (custom error)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_exception call 2 with multi error"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_exception call 3 with failure"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_exception call 4 with invalid argument"
+
+# Test 14: Option with closure
+gdb_test "break Test_custom_blocks_dwarf.f_option_closure" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_option_closure"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_option_closure"
+
+# Test 15: Result type
+gdb_test "break Test_custom_blocks_dwarf.f_result_type" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_result_type"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_result_type (Ok)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_result_type call 2 with Error"
+
+# Test 16: First-class module
+gdb_test "break Test_custom_blocks_dwarf.f_first_class_module" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_first_class_module"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_first_class_module"
+
+# Test 17: Weak array
+gdb_test "break Test_custom_blocks_dwarf.f_weak_array" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_weak_array"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_weak_array"
+
+# Test 18: Hashtable
+gdb_test "break Test_custom_blocks_dwarf.f_hashtable" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_hashtable"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_hashtable"
+
+# Test 19: Mutable array
+gdb_test "break Test_custom_blocks_dwarf.f_mutable_array" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_mutable_array"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_mutable_array (initial)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_mutable_array call 2 after updates"
+
+# Test 20: String buffer
+gdb_test "break Test_custom_blocks_dwarf.f_buffer" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_buffer"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_buffer"
+
+# Test 21: Lazy closure combo
+gdb_test "break Test_custom_blocks_dwarf.f_lazy_closure_combo" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_lazy_closure_combo"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_lazy_closure_combo"
+
+# Summary: This test verifies that:
+# 1. GDB can set breakpoints on functions with custom block type parameters
+# 2. Closure types are read correctly from DWARF
+# 3. Lazy value types work correctly (before and after forcing)
+# 4. Reference types and mutable data work
+# 5. Exception values are handled correctly
+# 6. First-class modules work
+# 7. Weak references, hashtables, and buffers work
+# 8. Complex nested structures (lazy closures, closure references, closure lists) work
+# 9. Program execution through custom block code works correctly

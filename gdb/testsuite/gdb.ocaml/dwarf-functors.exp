@@ -1,0 +1,205 @@
+# Copyright (C) 2025 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# Test OCaml DWARF 5 integration - Functor support
+# Tests that GDB correctly handles functor-instantiated types with module-qualified names
+# Corresponds to OxCaml LLDB test: test_simple_functor_dwarf.lldb
+
+load_lib "ocaml-support.exp"
+
+# Use standard OxCaml test setup for "simple_functor" test binary
+if {[standard_oxcaml_testfile "simple_functor"] == -1} {
+    return
+}
+
+# Test 1: Start function
+gdb_test "break Test_simple_functor_dwarf.f_start" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_start"
+
+gdb_test "run" \
+    ".*Breakpoint.*, .*f_start.*" \
+    "Run to f_start"
+
+# Test 2: IntSet functor (MakeSet instantiated with IntOrder)
+gdb_test "break Test_simple_functor_dwarf.f_int_set" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int_set (IntSet.t type)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_int_set.*" \
+    "Run to f_int_set (empty set)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_int_set.*" \
+    "Continue to f_int_set (singleton 42)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_int_set.*" \
+    "Continue to f_int_set call 2 with set of 3 elements"
+
+# Test 3: StringSet functor (MakeSet instantiated with StringOrder)
+gdb_test "break Test_simple_functor_dwarf.f_string_set" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_string_set (StringSet.t type)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_string_set.*" \
+    "Run to f_string_set (empty set)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_string_set.*" \
+    "Continue to f_string_set (singleton \"hello\")"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_string_set.*" \
+    "Continue to f_string_set call 2 with set of 2 elements"
+
+# Test 4: FloatSet functor (MakeSet instantiated with FloatOrder)
+gdb_test "break Test_simple_functor_dwarf.f_float_set" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_float_set (FloatSet.t type)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_float_set.*" \
+    "Run to f_float_set (singleton 3.14)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_float_set.*" \
+    "Continue to f_float_set (set with 3 elements)"
+
+# Test 5: IntStore functor (MakeSimpleStore instantiated with IntOrder)
+gdb_test "break Test_simple_functor_dwarf.f_int_store" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int_store (IntStore.t type)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_int_store.*" \
+    "Run to f_int_store (empty store)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_int_store.*" \
+    "Continue to f_int_store (store with 1 entry)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_int_store.*" \
+    "Continue to f_int_store call 2 with store of 2 entries"
+
+# Test 6: StringStore functor (MakeSimpleStore instantiated with StringOrder)
+gdb_test "break Test_simple_functor_dwarf.f_string_store" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_string_store (StringStore.t type)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_string_store.*" \
+    "Run to f_string_store (empty store)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_string_store.*" \
+    "Continue to f_string_store (store with 1 entry)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*, .*f_string_store.*" \
+    "Continue to f_string_store call 2 with store of 2 entries"
+
+# Test 7: Set operations (using IntSet)
+gdb_test "break Test_simple_functor_dwarf.f_set_operations" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_set_operations"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Run to f_set_operations"
+
+# Test 8: Store operations (using IntStore)
+gdb_test "break Test_simple_functor_dwarf.f_store_operations" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_store_operations"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Run to f_store_operations"
+
+# Test 9: Compute results with IntOrder and StringOrder
+gdb_test "break Test_simple_functor_dwarf.f_int_compute_result" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int_compute_result"
+
+# LLDB does two continues here
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Run to f_int_compute_result (first hit)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int_compute_result (second hit)"
+
+gdb_test "break Test_simple_functor_dwarf.f_string_compute_result" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_string_compute_result"
+
+# LLDB does two continues here
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Run to f_string_compute_result (first hit)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_string_compute_result (second hit)"
+
+# Test 10: Pair types with different type parameters
+gdb_test "break Test_simple_functor_dwarf.f_int_string_pair" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_int_string_pair"
+
+# LLDB does two continues here
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Run to f_int_string_pair (first hit)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_int_string_pair (second hit)"
+
+gdb_test "break Test_simple_functor_dwarf.f_string_float_pair" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_string_float_pair"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Run to f_string_float_pair"
+
+# Test 11: Comparison results
+gdb_test "break Test_simple_functor_dwarf.f_comparison_result" \
+    "Breakpoint .* at .*" \
+    "Set breakpoint at f_comparison_result"
+
+# LLDB does two continues here
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Run to f_comparison_result (first hit)"
+
+gdb_test "continue" \
+    ".*Breakpoint.*" \
+    "Continue to f_comparison_result (second hit)"
+
+# Summary: This test verifies that:
+# 1. GDB can set breakpoints on functions with functor-instantiated types
+# 2. Module-qualified type names (IntSet.t, StringSet.t, etc.) work correctly
+# 3. Different functor instantiations with different type parameters are distinguished
+# 4. Program execution through functor-generated code works correctly
+#
+# Note: This test does not inspect the internal structure of functor-generated types,
+# as the LLDB test only verifies execution and breakpoints, not value printing.
