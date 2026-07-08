@@ -215,6 +215,7 @@ main (int argc, char **argv)
     case gnat_demangling:
     case dlang_demangling:
     case rust_demangling:
+    case oxcaml_demangling:
        valid_symbols = standard_symbol_characters ();
       break;
     default:
