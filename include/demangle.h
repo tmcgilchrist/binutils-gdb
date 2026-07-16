@@ -57,7 +57,7 @@ extern "C" {
 #define DMGL_GNAT	 (1 << 15)
 #define DMGL_DLANG	 (1 << 16)
 #define DMGL_RUST	 (1 << 17)	/* Rust wraps GNU_V3 style mangling.  */
-#define DMGL_OXCAML	 (1 << 19)	/* OCaml and OxCaml symbols.  */
+#define DMGL_OXCAML	 (1 << 19)	/* OxCaml structured symbols.  */
 
 /* If none of these are set, use 'current_demangling_style' as the default. */
 #define DMGL_STYLE_MASK (DMGL_AUTO|DMGL_GNU_V3|DMGL_JAVA|DMGL_GNAT|DMGL_DLANG|DMGL_RUST|DMGL_OXCAML)

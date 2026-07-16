@@ -29,8 +29,8 @@
  * DEALINGS IN THE SOFTWARE.                                                  *
  ******************************************************************************/
 
-#ifndef __PERF_DEMANGLE_OCAML_STRUCTURED
-#define __PERF_DEMANGLE_OCAML_STRUCTURED 1
+#ifndef DEMANGLE_OCAML_STRUCTURED_H
+#define DEMANGLE_OCAML_STRUCTURED_H 1
 
 /*
  * Demangle an OxCaml "structured" symbol ("_Caml" prefix). Returns a newly
@@ -39,4 +39,4 @@
  */
 char *ocaml_demangle_structured_sym(const char *sym);
 
-#endif /* __PERF_DEMANGLE_OCAML_STRUCTURED */
+#endif /* DEMANGLE_OCAML_STRUCTURED_H */
