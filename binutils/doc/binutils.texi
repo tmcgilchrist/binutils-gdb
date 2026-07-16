@@ -4047,6 +4047,8 @@ the one used by the @sc{gnu} C++ compiler (g++) with the V3 ABI.
 the one used by the @sc{gnu} Java compiler (gcj)
 @item gnat
 the one used by the @sc{gnu} Ada compiler (GNAT).
+@item oxcaml
+the one used by the OCaml and OxCaml compilers.
 @end table
 
 @item --help

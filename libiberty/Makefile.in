@@ -142,6 +142,8 @@ CFILES = alloca.c argv.c asprintf.c atexit.c				\
 	make-temp-file.c md5.c memchr.c memrchr.c memcmp.c memcpy.c     \
 	memmem.c memmove.c mempcpy.c memset.c mkstemps.c		\
 	objalloc.c obstack.c						\
+	demangle-ocaml-structured.c					\
+	oxcaml-demangle.c						\
 	partition.c pexecute.c						\
 	 pex-common.c pex-djgpp.c pex-msdos.c pex-one.c			\
 	 pex-unix.c pex-win32.c						\
@@ -184,6 +186,8 @@ REQUIRED_OFILES =							\
 	./make-relative-prefix.$(objext) ./make-temp-file.$(objext)	\
 	./objalloc.$(objext)						\
 	./obstack.$(objext)						\
+	./demangle-ocaml-structured.$(objext)				\
+	./oxcaml-demangle.$(objext)					\
 	./partition.$(objext) ./pexecute.$(objext) ./physmem.$(objext)	\
 	./pex-common.$(objext) ./pex-one.$(objext)			\
 	./@pexecute@.$(objext) ./vprintf-support.$(objext)		\
@@ -1126,6 +1130,27 @@ $(CONFIGURED_OFILES): stamp-picdir stamp-noasandir
 	  $(COMPILE.c) $(PICFLAG) $(NOASANFLAG) $(srcdir)/obstack.c -o noasan/$@; \
 	else true; fi
 	$(COMPILE.c) $(srcdir)/obstack.c $(OUTPUT_OPTION)
+
+./demangle-ocaml-structured.$(objext): $(srcdir)/demangle-ocaml-structured.c \
+	$(srcdir)/demangle-ocaml-structured.h config.h
+	if [ x"$(PICFLAG)" != x ]; then \
+	  $(COMPILE.c) $(PICFLAG) $(srcdir)/demangle-ocaml-structured.c -o pic/$@; \
+	else true; fi
+	if [ x"$(NOASANFLAG)" != x ]; then \
+	  $(COMPILE.c) $(PICFLAG) $(NOASANFLAG) $(srcdir)/demangle-ocaml-structured.c -o noasan/$@; \
+	else true; fi
+	$(COMPILE.c) $(srcdir)/demangle-ocaml-structured.c $(OUTPUT_OPTION)
+
+./oxcaml-demangle.$(objext): $(srcdir)/oxcaml-demangle.c config.h \
+	$(INCDIR)/ansidecl.h $(INCDIR)/demangle.h $(INCDIR)/libiberty.h \
+	$(INCDIR)/safe-ctype.h $(srcdir)/demangle-ocaml-structured.h
+	if [ x"$(PICFLAG)" != x ]; then \
+	  $(COMPILE.c) $(PICFLAG) $(srcdir)/oxcaml-demangle.c -o pic/$@; \
+	else true; fi
+	if [ x"$(NOASANFLAG)" != x ]; then \
+	  $(COMPILE.c) $(PICFLAG) $(NOASANFLAG) $(srcdir)/oxcaml-demangle.c -o noasan/$@; \
+	else true; fi
+	$(COMPILE.c) $(srcdir)/oxcaml-demangle.c $(OUTPUT_OPTION)
 
 ./partition.$(objext): $(srcdir)/partition.c config.h $(INCDIR)/ansidecl.h \
 	$(INCDIR)/libiberty.h $(INCDIR)/partition.h

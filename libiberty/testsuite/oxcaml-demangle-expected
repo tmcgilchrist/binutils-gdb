@@ -1,0 +1,275 @@
+# This file holds test cases for the OxCaml demangler.
+# Each test case looks like this:
+#  options
+#  input to be demangled
+#  expected output
+#
+# See demangle-expected for documentation of supported options.
+#
+# A line starting with `#' is ignored.
+# However, blank lines in this file are NOT ignored.
+#
+# The structured cases mirror the Linux perf demangle-ocaml test
+# (tools/perf/tests/demangle-ocaml-test.c), which shares its demangling
+# core with this one.  A symbol that is not recognised is passed through
+# unchanged, so its expected output equals its input.
+############
+#
+# non-OCaml symbols should not be demangled
+--format=oxcaml
+main
+main
+#
+# "caml" followed by lowercase is not a mangled symbol
+--format=oxcaml
+camlfoo
+camlfoo
+#
+# runtime symbol "caml_" prefix is not a mangled user symbol
+--format=oxcaml
+caml_exn_Match_failure
+caml_exn_Match_failure
+#
+############
+# Flat mangling (not supported): only the structured "_Caml" scheme is
+# demangled, so flat "caml..." symbols pass through unchanged.
+############
+#
+# compilation unit name only, no member
+--format=oxcaml
+camlFoo
+camlFoo
+#
+# unit with a member separated by __
+--format=oxcaml
+camlFoo__bar_0
+camlFoo__bar_0
+#
+############
+# Structured mangling
+############
+#
+# bare prefix with no path items is malformed
+--format=oxcaml
+_Caml
+_Caml
+#
+# basic: _CamlU3FooM3BarF3baz -> Foo.Bar.baz
+--format=oxcaml
+_CamlU3FooM3BarF3baz
+Foo.Bar.baz
+#
+# unit + function only
+--format=oxcaml
+_CamlU6StdlibF3map
+Stdlib.map
+#
+# class tag
+--format=oxcaml
+_CamlU3FooO5MyObj
+Foo.MyObj
+#
+# inline marker (specialized copy) between two compilation units
+--format=oxcaml
+_CamlU3FooIU3BarF3qux
+Foo.<specialization_of>.Bar.qux
+#
+# universal encoding: operator >>= (all non-output chars)
+# >>=: hex 3e,3e,3d at position 0 (A), empty raw
+# payload: A3e3e3d_ (8 chars)
+--format=oxcaml
+_CamlU3FooFu8A3e3e3d_
+Foo.>>=
+#
+# universal encoding: let* (* at position 3 = D, hex 2a)
+# payload: D2a_let (7 chars)
+--format=oxcaml
+_CamlU3FooFu7D2a_let
+Foo.let*
+#
+# universal encoding: func'sub' (two insertions)
+# ' at position 4 = E, hex 27; ' at relative position 3 = D, hex 27
+# payload: E27D27_funcsub (14 chars)
+--format=oxcaml
+_CamlU3FooFu14E27D27_funcsub
+Foo.func'sub'
+#
+# anonymous function with file location
+# Anonymous_function(334, 0, "stdlib.ml")
+# location string: stdlib.ml_334_0
+# . at position 6 = G, hex 2e; raw: stdlibml_334_0
+# payload: G2e_stdlibml_334_0 (18 chars)
+--format=oxcaml
+_CamlU6StdlibLu18G2e_stdlibml_334_0
+Stdlib.fn(stdlib.ml:334:0)
+#
+# anonymous module (struct) without file
+# Anonymous_module(42, 7, None) -> location string: _42_7
+# all output chars, no escaping needed (5 chars)
+--format=oxcaml
+_CamlU3FooS5_42_7
+Foo.mod(:42:7)
+#
+# partial application without file
+# Partial_function(10, 5, None) -> location string: _10_5
+# all output chars, no escaping needed (5 chars)
+--format=oxcaml
+_CamlU3FooP5_10_5
+Foo.partial(:10:5)
+#
+# nested modules and function
+--format=oxcaml
+_CamlU3FooM3BarM3BazF6my_fun
+Foo.Bar.Baz.my_fun
+#
+# universal encoding: identifier starting with digit
+# string "0foo" starts with digit -> requires universal encoding
+# no non-output chars, so escaped is empty, raw = 0foo
+# payload: _0foo (5 chars)
+--format=oxcaml
+_CamlU3FooFu5_0foo
+Foo.0foo
+#
+# nested module + class + function
+--format=oxcaml
+_CamlU3FooM3BarO5ShapeF4area
+Foo.Bar.Shape.area
+#
+# nested anonymous functions with file locations
+--format=oxcaml
+_CamlU3FooF3barLu14D2e_fooml_3_15Lu14D2e_fooml_4_22F4fn_7
+Foo.bar.fn(foo.ml:3:15).fn(foo.ml:4:22).fn_7
+#
+# anonymous struct with a file location
+--format=oxcaml
+_CamlU3FooSu14D2e_fooml_2_10F4initF4fn_5_6
+Foo.mod(foo.ml:2:10).init.fn_5_6
+#
+# partial application with a file location
+--format=oxcaml
+_CamlU3FooF3barPu14D2e_fooml_9_15
+Foo.bar.partial(foo.ml:9:15)
+#
+# class (O) with a generated method closure
+--format=oxcaml
+_CamlU7FixtureO7counterF4fn_3_11_code
+Fixture.counter.fn_3
+#
+# partial application: OxCmaml drops the Partial_function (P)
+# scope and emits a named "partial_<fn>" closure (F tag), so a
+# real partial app looks like an ordinary function
+--format=oxcaml
+_CamlU6Ptest2F14partial_add3_3_3_code
+Ptest2.partial_add3_3
+#
+# local module nested inside a function (F -> M -> F)
+--format=oxcaml
+_CamlU9E2e_ocamlF17with_local_moduleM1MF8scale_23_103_code
+E2e_ocaml.with_local_module.M.scale_23
+#
+# deeply nested modules with a module inside a function
+--format=oxcaml
+_CamlU9E2e_ocamlM9Deep_nestM6Layer1M6Layer2F10down_we_goM8Way_downF7bump_56_136_code
+E2e_ocaml.Deep_nest.Layer1.Layer2.down_we_go.Way_down.bump_56
+#
+# inline marker before a real cross-unit specialization path
+--format=oxcaml
+_CamlU10E2e_inlineIU14E2e_inline_libF9iterate_nF6loop_7_25_code
+E2e_inline.<specialization_of>.E2e_inline_lib.iterate_n.loop_7
+#
+# anonymous function with a real file-basename location
+--format=oxcaml
+_CamlU10E2e_inlineLu22K2e_e2e_inlineml_52_30F4fn_5_21_code
+E2e_inline.fn(e2e_inline.ml:52:30).fn_5
+#
+# anonymous struct with a real location, inside an inline path
+--format=oxcaml
+_CamlU10E2e_inlineIU14E2e_inline_libSu26O2e_e2e_inline_libml_62_10F8apply_20_38_code
+E2e_inline.<specialization_of>.E2e_inline_lib.mod(e2e_inline_lib.ml:62:10).apply_20
+#
+############
+# Suffix handling
+############
+#
+# Compiler appends _<stamp>_code or _<stamp> after the path.
+# closure suffix _<stamp>_code is dropped
+--format=oxcaml
+_CamlU4MainF11say_hello_0_5_code
+Main.say_hello_0
+#
+--format=oxcaml
+_CamlU4MainM4TestF5foo_1_6_code
+Main.Test.foo_1
+#
+--format=oxcaml
+_CamlU12Stdlib__ListF6map_15_113_code
+Stdlib__List.map_15
+#
+# a non-_code suffix (here _300) is kept verbatim
+--format=oxcaml
+_CamlU4MainSu15E2e_testml_5_15_300
+Main.mod(test.ml:5:15)_300
+#
+############
+# Malformed structured symbols (rejected)
+############
+#
+# invalid path-item tag ('X' is not U/I/M/S/O/F/L/P)
+--format=oxcaml
+_CamlU3FooXXX
+_CamlU3FooXXX
+#
+# claimed identifier length overruns the remaining input
+--format=oxcaml
+_CamlU99Foo
+_CamlU99Foo
+#
+# missing decimal length after a path-item tag
+--format=oxcaml
+_CamlUFoo
+_CamlUFoo
+#
+# zero-length identifier payload is malformed
+--format=oxcaml
+_CamlU0M3Bar
+_CamlU0M3Bar
+#
+# universal index past the end of the raw section
+--format=oxcaml
+_CamlU3FooFu6G1234_funcsub
+_CamlU3FooFu6G1234_funcsub
+#
+# non-hex digit in the escaped section
+--format=oxcaml
+_CamlU3FooFu11G2g_funcsub
+_CamlU3FooFu11G2g_funcsub
+#
+# uppercase hex is not accepted in the escaped section
+--format=oxcaml
+_CamlU3FooFu11G2A_funcsub
+_CamlU3FooFu11G2A_funcsub
+#
+############
+# Auto-format detection
+############
+#
+# Structured symbol detected in auto mode
+--format=auto
+_CamlU3FooM3BarF3baz
+Foo.Bar.baz
+#
+# Flat symbol in auto mode is not an OxCaml symbol; it is left for the
+# other demanglers and passes through unchanged here.
+--format=auto
+camlFoo__bar_0
+camlFoo__bar_0
+#
+# Non-oxcaml symbol in auto mode (C++ symbol, will demangle via C++)
+--format=auto
+_ZN4testE
+test
+#
+# Should not demangle with wrong format
+--format=gnu-v3
+_CamlU3FooM3BarF3baz
+_CamlU3FooM3BarF3baz
